@@ -37,9 +37,50 @@ st.markdown('<header class="hero"><small>INTELLIGENCE  /  02</small><h1>REDIAL</
 require_access()
 st.info("La validación es gratuita y local. No comprueba si la línea está activa ni consulta operador actual de terceros. Fijo/móvil y operador quedan desconocidos salvo que se importen con procedencia documentada.")
 
-tab_overview, tab_import, tab_contacts, tab_export, tab_mobile = st.tabs(["Resumen", "Importar", "Contactos", "Exportar", "Android y actualizaciones"])
-
-with tab_overview:
+menu = st.selectbox("Menú · Ir a", ["Resumen","Web Pad","Importar","Contactos","Exportar","Android y actualizaciones"])
+if menu == "Web Pad":
+    import secrets, sqlite3, time, re, hashlib
+    from store import DB_PATH, connect
+    st.subheader("Web Pad")
+    mode=st.radio("Este dispositivo",["PC · preparar número","Teléfono · recibir número"])
+    with connect() as db:
+        db.execute("CREATE TABLE IF NOT EXISTS pad (key TEXT PRIMARY KEY, number TEXT, expires INTEGER)")
+        db.execute("DELETE FROM pad WHERE expires < ?",(int(time.time()),))
+    def padkey(value):
+        return hashlib.sha256(value.strip().upper().encode()).hexdigest()
+    if mode.startswith("Teléfono"):
+        if st.button("Vincular este teléfono"):
+            code=secrets.token_hex(4).upper()
+            with connect() as db:
+                db.execute("INSERT INTO pad VALUES (?,?,?)",(padkey(code),"",int(time.time())+1800))
+            st.session_state.pad_code=code
+        if "pad_code" in st.session_state:
+            st.code(st.session_state.pad_code)
+            st.caption("Escribe este código en el Web Pad de la PC. Válido durante 30 minutos. Mantén esta vista abierta.")
+            @st.fragment(run_every="3s")
+            def receive():
+                with connect() as db:
+                    r=db.execute("SELECT number FROM pad WHERE key=? AND expires>?",(padkey(st.session_state.pad_code),int(time.time()))).fetchone()
+                if not r: st.info("El vínculo caducó. Vuelve a vincular el teléfono.")
+                elif not r[0]: st.caption("Esperando número de la PC…")
+                else:
+                    st.write("Número recibido",r[0])
+                    st.markdown(f'<a href="tel:{r[0]}" target="_self">Abrir en el marcador</a>',unsafe_allow_html=True)
+            receive()
+    else:
+        with st.form("pad_send"):
+            code=st.text_input("Código del teléfono")
+            number=st.text_input("Número para el marcador")
+            send=st.form_submit_button("Pasar al teléfono")
+        if send:
+            number=re.sub(r"[ ()-]","",number)
+            if not re.fullmatch(r"[+]?[0-9]{2,20}",number): st.error("Revisa el número.")
+            else:
+                with connect() as db:
+                    changed=db.execute("UPDATE pad SET number=? WHERE key=? AND expires>?",(number,padkey(code),int(time.time()))).rowcount
+                if changed: st.success("Número disponible en el teléfono. Confirma la llamada desde REDIAL.")
+                else: st.error("Código incorrecto o caducado.")
+if menu == "Resumen":
     m = metrics()
     cols = st.columns(6)
     for col, label, key in zip(cols, ["Contactos", "Formato válido", "Móviles confirmados", "Fijos confirmados", "Tipo desconocido", "Opt-in SMS"], ["total", "valid", "mobile", "fixed", "unknown", "sms_optin"]):
@@ -47,7 +88,7 @@ with tab_overview:
     st.metric("Opt-in WhatsApp", m.get("whatsapp_optin", 0))
     st.caption("Los contadores de consentimiento son informativos. La exportación aplica filtros estrictos, incluyendo evidencia y fecha de consentimiento.")
 
-with tab_import:
+if menu == "Importar":
     st.subheader("Importar una lista CSV")
     st.caption("Se conserva el mínimo necesario. Teléfonos duplicados se actualizan por número normalizado.")
     upload = st.file_uploader("Selecciona CSV", type=["csv"], key="csv")
@@ -62,7 +103,7 @@ with tab_import:
             st.error(str(exc))
     st.download_button("Descargar plantilla CSV", data="phone,name,line_type,line_type_source,line_type_checked_at,sms_consent,sms_consent_at,sms_consent_source,whatsapp_consent,whatsapp_consent_at,whatsapp_consent_source,carrier,carrier_source,carrier_checked_at\n", file_name="redial_plantilla.csv", mime="text/csv")
 
-with tab_contacts:
+if menu == "Contactos":
     st.subheader("Contactos")
     data = list_contacts(5000)
     if data:
@@ -96,7 +137,7 @@ with tab_contacts:
     else:
         st.caption("Aún no hay contactos. Importa un CSV para comenzar.")
 
-with tab_export:
+if menu == "Exportar":
     st.subheader("Preparar lista autorizada")
     channel = st.radio("Canal de destino", ["SMS", "WhatsApp"], horizontal=True)
     key = channel.lower()
@@ -106,7 +147,7 @@ with tab_export:
     st.caption("Solo incluye formato telefónico México válido, móvil confirmado, consentimiento del canal, fecha y fuente. No se envía ningún mensaje.")
     st.download_button(f"Descargar CSV autorizado para {channel}", export, file_name=f"redial_{key}_autorizados.csv", mime="text/csv", disabled=count == 0, type="primary")
 
-with tab_mobile:
+if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
