@@ -48,6 +48,16 @@ st.markdown("""
 [data-testid="stMetric"]{border-radius:0;border-top:1px solid #afa69a;background:linear-gradient(155deg,#303033,#19191b)}
 [data-testid="stSelectbox"]{border-left:3px solid #555054;padding-left:12px;margin-top:6px}
 @media(max-width:620px){.hero:after{inset:0 -20% 0 28%;opacity:.68}.hero h1{font-size:62px}}
+
+/* Widget contrast is independent of the viewer's Streamlit theme. */
+[data-testid="stMain"] [data-testid="stRadio"] label,
+[data-testid="stMain"] [data-testid="stRadio"] label *,
+[data-testid="stMain"] [data-testid="stWidgetLabel"] p {color:#211f24!important;opacity:1}
+[data-testid="stRadio"] [role="radiogroup"] {padding:10px 16px;background:#f9f8f4;border:1px solid #aaa69d;border-radius:4px}
+[data-testid="stRadio"] label:focus-within {outline:2px solid #746650;outline-offset:2px}
+[data-testid="stMain"] :is(.stButton,.stFormSubmitButton,.stDownloadButton) button:not(:disabled) {background:#242226!important;border:1px solid #242226!important;color:#fffaf1!important}
+[data-testid="stMain"] :is(.stButton,.stFormSubmitButton,.stDownloadButton) button:not(:disabled) * {color:#fffaf1!important}
+[data-testid="stMain"] :is(.stButton,.stFormSubmitButton,.stDownloadButton) button:not(:disabled):hover {background:#403d42!important}
 </style>
 <header class="hero"><small>INTELLIGENCE &nbsp;/&nbsp; 02</small><h1>REDIAL</h1><p>Consola de contactos</p></header>
 """,unsafe_allow_html=True)
