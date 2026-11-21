@@ -21,6 +21,12 @@ from store import DATA_DIR, select_account
 
 def require_access():
     password = str(st.secrets.get("REDIAL_PANEL_PASSWORD", ""))
+    master=str(st.secrets.get("REDIAL_MASTER_USER","")).strip().lower()
+    verifier=str(st.secrets.get("REDIAL_MASTER_VERIFIER",""))
+    stamp=hashlib.sha256(verifier.encode()).hexdigest()
+    if master and verifier and hmac.compare_digest(st.session_state.get("master_stamp",""),stamp):
+        select_account(None)
+        return
     user = st.session_state.get("operator")
     if user:
         select_account(user)
@@ -32,6 +38,10 @@ def require_access():
     DATA_DIR.mkdir(parents=True,exist_ok=True)
     with closing(sqlite3.connect(DATA_DIR/"accounts.sqlite3",timeout=10)) as auth:
         auth.execute("CREATE TABLE IF NOT EXISTS accounts(user TEXT PRIMARY KEY,salt BLOB NOT NULL,verifier BLOB NOT NULL, failures INTEGER DEFAULT 0, until INTEGER DEFAULT 0)")
+        if master and re.fullmatch(r"[0-9a-f]{32}:[0-9a-f]{64}",verifier):
+            salt_hex,hash_hex=verifier.split(":")
+            auth.execute("INSERT INTO accounts(user,salt,verifier) VALUES(?,?,?) ON CONFLICT(user) DO UPDATE SET salt=excluded.salt,verifier=excluded.verifier WHERE accounts.verifier!=excluded.verifier",(master,bytes.fromhex(salt_hex),bytes.fromhex(hash_hex)))
+            auth.commit()
         with st.form("account_login"):
             name = st.text_input("Usuario").strip().lower()
             pin = st.text_input("PIN",type="password",max_chars=12)
@@ -45,7 +55,10 @@ def require_access():
                 if hmac.compare_digest(check,row[1]):
                     auth.execute("UPDATE accounts SET failures=0,until=0 WHERE user=?",(name,))
                     auth.commit()
-                    st.session_state.operator=name
+                    if master and name==master:
+                        st.session_state.master_stamp=stamp
+                    else:
+                        st.session_state.operator=name
                     st.rerun()
                 attempts=(0 if row[3] else row[2])+1
                 auth.execute("UPDATE accounts SET failures=?,until=? WHERE user=?",(attempts,now+900 if attempts>=5 else 0,name))
@@ -126,9 +139,9 @@ else:
     menu = "Web Pad"
 st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"></div>',unsafe_allow_html=True)
 require_access()
-if st.session_state.get("operator") or st.session_state.get("session_key"):
+if st.session_state.get("operator") or st.session_state.get("master_stamp") or st.session_state.get("session_key"):
     with st.sidebar:
-        st.caption(st.session_state.get("operator","Espacio anterior"))
+        st.caption(str(st.secrets.get("REDIAL_MASTER_USER",""))+" · Maestro" if st.session_state.get("master_stamp") else st.session_state.get("operator","Espacio anterior"))
         if st.button("Cerrar sesión"):
             st.session_state.clear()
             st.rerun()
