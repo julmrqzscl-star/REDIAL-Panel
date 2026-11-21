@@ -73,7 +73,7 @@ else:
 st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"></div>',unsafe_allow_html=True)
 require_access()
 if menu == "Web Pad":
-    import secrets, sqlite3, time, re, hashlib
+    import secrets, sqlite3, time, re, hashlib, json
     from store import DB_PATH, connect
     st.subheader("Web Pad")
     if pairing:
@@ -90,6 +90,8 @@ if menu == "Web Pad":
             st.stop()
     with connect() as db:
         db.execute("CREATE TABLE IF NOT EXISTS pad (key TEXT PRIMARY KEY, number TEXT, expires INTEGER)")
+        db.execute("CREATE TABLE IF NOT EXISTS dial_batch (device TEXT PRIMARY KEY, batch_id TEXT NOT NULL, payload TEXT NOT NULL)")
+        db.execute("DELETE FROM dial_batch WHERE device NOT IN (SELECT key FROM pad WHERE expires>?)",(int(time.time()),))
         db.execute("DELETE FROM pad WHERE expires < ?",(int(time.time()),))
     def padkey(value):
         return hashlib.sha256(value.strip().upper().encode()).hexdigest()
@@ -106,6 +108,12 @@ if menu == "Web Pad":
             def receive():
                 with connect() as db:
                     r=db.execute("SELECT number FROM pad WHERE key=? AND expires>?",(padkey(st.session_state.pad_code),int(time.time()))).fetchone()
+                    batch=db.execute("SELECT batch_id,payload FROM dial_batch WHERE device=?",(padkey(st.session_state.pad_code),)).fetchone()
+                if r and batch:
+                    import base64
+                    encoded=base64.urlsafe_b64encode(batch["payload"].encode()).decode()
+                    st.markdown(f'<div id="redial-campaign" data-batch="{encoded}">Campaña disponible en el marcador Android.</div>',unsafe_allow_html=True)
+                    st.caption("El marcador inicia las llamadas si la recepción automática está habilitada en este teléfono.")
                 if not r: st.info("El vínculo caducó. Vuelve a vincular el teléfono.")
                 elif not r[0]: st.caption("Esperando número de la PC…")
                 else:
@@ -113,6 +121,29 @@ if menu == "Web Pad":
                     st.markdown(f'<a href="tel:{r[0]}" target="_self">Abrir en el marcador</a>',unsafe_allow_html=True)
             receive()
     else:
+        with st.expander("Campaña de marcación", expanded=True):
+            upload = st.file_uploader("Base que se va a marcar (CSV)",type=["csv"],key="campaign_csv")
+            numbers=[]
+            if upload:
+                try:
+                    rows=import_csv_text(upload.getvalue().decode("utf-8-sig"))
+                    numbers=list(dict.fromkeys("+"+r["phone"] for r in rows if r["format_valid"]))
+                    st.caption(f"{len(numbers)} números válidos y únicos para esta campaña.")
+                except (UnicodeError,ValueError) as exc:
+                    st.error(str(exc))
+            device_code=st.text_input("Código del APK",key="batch_device")
+            private=st.toggle("Solicitar número oculto",help="La disponibilidad depende de la SIM y del operador.")
+            if st.button("Iniciar campaña en el teléfono",disabled=not numbers or not device_code):
+                device_id=padkey(device_code)
+                batch_id=secrets.token_hex(16)
+                payload=json.dumps(dict(id=batch_id,private=private,numbers=numbers),separators=(",",":"))
+                with connect() as db:
+                    active=db.execute("SELECT 1 FROM pad WHERE key=? AND expires>?",(device_id,int(time.time()))).fetchone()
+                    if active:
+                        db.execute("INSERT OR REPLACE INTO dial_batch VALUES(?,?,?)",(device_id,batch_id,payload))
+                if active: st.success("Campaña preparada para el APK. El progreso aparece en el teléfono.")
+                else: st.error("Código incorrecto o caducado.")
+        st.markdown("**Enviar un solo número**")
         with st.form("pad_send"):
             code=st.text_input("Código del teléfono")
             number=st.text_input("Número para el marcador")
