@@ -12,25 +12,78 @@ st.set_page_config(page_title="REDIAL Intelligence v2.0", page_icon="📡", layo
 import hmac
 import hashlib
 
+import re
+import secrets
+import sqlite3
+import time
+from contextlib import closing
+from store import DATA_DIR, select_account
+
 def require_access():
-    try:
-        password = st.secrets.get("REDIAL_PANEL_PASSWORD", "")
-    except Exception:
-        password = ""
-    if not password:
-        st.info("Configura REDIAL_PANEL_PASSWORD en los secretos de Streamlit para habilitar el panel.")
-        st.stop()
+    password = str(st.secrets.get("REDIAL_PANEL_PASSWORD", ""))
+    user = st.session_state.get("operator")
+    if user:
+        select_account(user)
+        return
     digest = hashlib.sha256(password.encode()).hexdigest()
-    if st.session_state.get("session_key") != digest:
-        with st.form("access"):
-            entered = st.text_input("Contraseña del panel REDIAL", type="password")
-            submit = st.form_submit_button("Entrar")
-        if submit and hmac.compare_digest(entered.encode(), password.encode()):
-            st.session_state.session_key = digest
-            st.rerun()
-        if submit:
-            st.error("Contraseña incorrecta")
-        st.stop()
+    if password and st.session_state.get("session_key") == digest:
+        select_account(None)
+        return
+    DATA_DIR.mkdir(parents=True,exist_ok=True)
+    with closing(sqlite3.connect(DATA_DIR/"accounts.sqlite3",timeout=10)) as auth:
+        auth.execute("CREATE TABLE IF NOT EXISTS accounts(user TEXT PRIMARY KEY,salt BLOB NOT NULL,verifier BLOB NOT NULL, failures INTEGER DEFAULT 0, until INTEGER DEFAULT 0)")
+        with st.form("account_login"):
+            name = st.text_input("Usuario").strip().lower()
+            pin = st.text_input("PIN",type="password",max_chars=12)
+            login = st.form_submit_button("Conectar",type="primary")
+        if login:
+            auth.execute("BEGIN IMMEDIATE")
+            row=auth.execute("SELECT salt,verifier,failures,until FROM accounts WHERE user=?",(name,)).fetchone()
+            now=int(time.time())
+            if row and row[3]<=now:
+                check=hashlib.pbkdf2_hmac("sha256",pin.encode(),row[0],600000)
+                if hmac.compare_digest(check,row[1]):
+                    auth.execute("UPDATE accounts SET failures=0,until=0 WHERE user=?",(name,))
+                    auth.commit()
+                    st.session_state.operator=name
+                    st.rerun()
+                attempts=(0 if row[3] else row[2])+1
+                auth.execute("UPDATE accounts SET failures=?,until=? WHERE user=?",(attempts,now+900 if attempts>=5 else 0,name))
+            auth.commit()
+            st.error("Acceso no disponible. Revisa tus datos o vuelve a intentar más tarde.")
+        if not pairing:
+            with st.expander("Crear usuario"):
+                with st.form("new_account",clear_on_submit=True):
+                    new=st.text_input("Nuevo usuario").strip().lower()
+                    secret=st.text_input("Nuevo PIN (6 a 12 dígitos)",type="password",max_chars=12)
+                    admin=st.text_input("Contraseña actual del panel",type="password")
+                    create=st.form_submit_button("Crear y conectar")
+                if create:
+                    if not password or not hmac.compare_digest(admin.encode(),password.encode()):
+                        st.error("Comprueba la contraseña actual del panel.")
+                    elif not re.fullmatch(r"[a-z0-9_.-]{3,40}",new) or not re.fullmatch(r"[0-9]{6,12}",secret):
+                        st.error("Usa un usuario de 3 a 40 caracteres y un PIN de 6 a 12 dígitos.")
+                    else:
+                        salt=secrets.token_bytes(16)
+                        verifier=hashlib.pbkdf2_hmac("sha256",secret.encode(),salt,600000)
+                        try:
+                            auth.execute("INSERT INTO accounts(user,salt,verifier) VALUES(?,?,?)",(new,salt,verifier))
+                            auth.commit()
+                        except sqlite3.IntegrityError:
+                            st.error("Ese usuario ya existe.")
+                        else:
+                            st.session_state.operator=new
+                            st.rerun()
+        with st.expander("Acceso al espacio anterior"):
+            with st.form("legacy"):
+                entered=st.text_input("Contraseña del panel REDIAL",type="password")
+                submit=st.form_submit_button("Entrar al espacio anterior")
+            if submit and password and hmac.compare_digest(entered.encode(),password.encode()):
+                st.session_state.session_key=digest
+                st.rerun()
+            if submit:
+                st.error("Contraseña incorrecta.")
+    st.stop()
 
 import base64
 from pathlib import Path
@@ -73,6 +126,12 @@ else:
     menu = "Web Pad"
 st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"></div>',unsafe_allow_html=True)
 require_access()
+if st.session_state.get("operator") or st.session_state.get("session_key"):
+    with st.sidebar:
+        st.caption(st.session_state.get("operator","Espacio anterior"))
+        if st.button("Cerrar sesión"):
+            st.session_state.clear()
+            st.rerun()
 if menu == "Web Pad":
     import secrets, sqlite3, time, re, hashlib, json
     from store import DB_PATH, connect
@@ -80,7 +139,7 @@ if menu == "Web Pad":
     if pairing:
         mode = "Teléfono"
     else:
-        mode=st.radio("Usar este dispositivo como",["PC · dirigir campaña","Teléfono · recibir campaña"],horizontal=True)
+        mode="PC"
     with connect() as db:
         db.execute("CREATE TABLE IF NOT EXISTS pad (key TEXT PRIMARY KEY, number TEXT, expires INTEGER)")
         db.execute("CREATE TABLE IF NOT EXISTS dial_batch (device TEXT PRIMARY KEY, batch_id TEXT NOT NULL, payload TEXT NOT NULL)")
@@ -95,7 +154,7 @@ if menu == "Web Pad":
         db.execute("CREATE TABLE IF NOT EXISTS dial_status(device TEXT PRIMARY KEY, phase TEXT, position INTEGER, total INTEGER, batch TEXT, seen INTEGER)")
         db.execute("DELETE FROM dial_status WHERE seen<?",(int(time.time())-86400,))
     if mode.startswith("Teléfono"):
-        if "pad_code" not in st.session_state or st.button("Renovar código"):
+        if "pad_code" not in st.session_state:
             old=st.session_state.get("pad_code")
             code=secrets.token_hex(4).upper()
             with connect() as db:
@@ -103,8 +162,8 @@ if menu == "Web Pad":
                 db.execute("INSERT INTO pad VALUES (?,?,?)",(padkey(code),"",int(time.time())+1800))
             st.session_state.pad_code=code
         if "pad_code" in st.session_state:
-            st.code(st.session_state.pad_code)
-            st.caption("Escribe este código en el Web Pad de la PC. Válido durante 30 minutos. Mantén esta vista abierta.")
+            st.success("Teléfono conectado al Web Pad")
+            st.caption("Este teléfono aparece en la PC como REDIAL "+padkey(st.session_state.pad_code)[:4].upper()+". Mantén abierta esta pantalla para recibir la campaña.")
             from streamlit.components.v2 import component
             reporter=component("redial_status", js="""
             export default function({setStateValue}) {
@@ -129,7 +188,9 @@ if menu == "Web Pad":
                     st.session_state.dial_tick=report.get("tick")
             @st.fragment(run_every="3s")
             def receive():
+                select_account(st.session_state.get("operator"))
                 with connect() as db:
+                    db.execute("INSERT INTO pad(key,number,expires) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET expires=excluded.expires",(padkey(st.session_state.pad_code),"",int(time.time())+1800))
                     r=db.execute("SELECT number FROM pad WHERE key=? AND expires>?",(padkey(st.session_state.pad_code),int(time.time()))).fetchone()
                     if r:
                         db.execute("INSERT OR REPLACE INTO pad_presence VALUES (?,?)",(padkey(st.session_state.pad_code),int(time.time())))
@@ -148,9 +209,32 @@ if menu == "Web Pad":
                     st.markdown(f'<a href="tel:{r[0]}" target="_self">Abrir en el marcador</a>',unsafe_allow_html=True)
             receive()
     else:
-        with st.expander("Campaña de marcación", expanded=True):
-            device_col, base_col = st.columns([1,1.4])
-            device_code=device_col.text_input("Código del APK",key="batch_device",placeholder="Código del teléfono")
+        def available_devices():
+            with connect() as db:
+                return [r[0] for r in db.execute("SELECT p.key FROM pad p JOIN pad_presence h ON h.device=p.key WHERE h.seen>=? AND p.expires>? ORDER BY p.key",(int(time.time())-20,int(time.time())))]
+        devices=available_devices()
+        previous=st.session_state.get("selected_pad")
+        options=sorted(set(devices+([previous] if previous else [])))
+        if len(options)==1 and previous is None:
+            st.session_state.selected_pad=options[0]
+        def device_label(key):
+            return "REDIAL "+key[:4].upper()+(" · conectado" if key in devices else " · sin señal")
+        @st.fragment(run_every="4s")
+        def discover():
+            select_account(st.session_state.get("operator"))
+            if available_devices()!=devices:
+                st.rerun()
+        discover()
+        with st.container(border=True):
+            if len(options)>1:
+                selected=st.selectbox("Teléfono para esta campaña",options,index=options.index(previous) if previous in options else None,key="pad_choice",on_change=lambda: st.session_state.update(selected_pad=st.session_state.pad_choice),format_func=device_label,placeholder="Selecciona un teléfono")
+            else:
+                selected=st.session_state.get("selected_pad")
+                if selected and selected in devices: st.success(device_label(selected))
+                elif selected: st.warning(device_label(selected))
+                else: st.info("En REDIAL para Android, toca Vincular con Web Pad. Tu teléfono aparecerá aquí.")
+            device_id=selected if selected in devices else None
+            base_col=st
             upload = base_col.file_uploader("Base que se va a marcar (CSV)",type=["csv"],key="campaign_csv")
             numbers=[]
             if upload:
@@ -160,14 +244,15 @@ if menu == "Web Pad":
                     st.caption(f"{len(numbers)} números válidos y únicos para esta campaña.")
                 except (UnicodeError,ValueError) as exc:
                     st.error(str(exc))
-            if device_code:
+            if selected:
                 @st.fragment(run_every="5s")
                 def connection_status():
+                    select_account(st.session_state.get("operator"))
                     with connect() as db:
-                        row=db.execute("SELECT p.expires,h.seen AS web_seen,s.phase,s.position,s.total,s.seen FROM pad p LEFT JOIN pad_presence h ON h.device=p.key LEFT JOIN dial_status s ON s.device=p.key WHERE p.key=?",(padkey(device_code),)).fetchone()
+                        row=db.execute("SELECT p.expires,h.seen AS web_seen,s.phase,s.position,s.total,s.seen FROM pad p LEFT JOIN pad_presence h ON h.device=p.key LEFT JOIN dial_status s ON s.device=p.key WHERE p.key=?",(selected,)).fetchone()
                     now=int(time.time())
                     if not row or row["expires"]<=now:
-                        st.caption("Código incorrecto o caducado")
+                        st.caption("Teléfono desconectado")
                     elif row["seen"] and now-row["seen"]<20:
                         st.success("APK vinculado · "+row["phase"])
                         if row["total"]:
@@ -180,30 +265,28 @@ if menu == "Web Pad":
                         st.caption("Esperando conexión")
                 connection_status()
             private=st.toggle("Solicitar número oculto",help="La disponibilidad depende de la SIM y del operador.")
-            if st.button("Iniciar campaña en el teléfono",disabled=not numbers or not device_code):
-                device_id=padkey(device_code)
+            if st.button("Iniciar campaña en el teléfono",disabled=not numbers or not device_id):
                 batch_id=secrets.token_hex(16)
                 payload=json.dumps(dict(id=batch_id,private=private,numbers=numbers),separators=(",",":"))
                 with connect() as db:
-                    active=db.execute("SELECT 1 FROM pad WHERE key=? AND expires>?",(device_id,int(time.time()))).fetchone()
+                    active=db.execute("SELECT 1 FROM pad p JOIN pad_presence h ON h.device=p.key WHERE p.key=? AND p.expires>? AND h.seen>=?",(device_id,int(time.time()),int(time.time())-20)).fetchone()
                     if active:
                         db.execute("INSERT OR REPLACE INTO dial_batch VALUES(?,?,?)",(device_id,batch_id,payload))
                 if active: st.success("Campaña preparada para el APK. El progreso aparece en el teléfono.")
-                else: st.error("Código incorrecto o caducado.")
+                else: st.error("Teléfono desconectado.")
         st.divider()
         st.markdown("**Marcación individual**")
         with st.form("pad_send"):
-            code=st.text_input("Código del teléfono")
             number=st.text_input("Número para el marcador")
-            send=st.form_submit_button("Pasar al teléfono")
+            send=st.form_submit_button("Pasar al teléfono",disabled=not device_id)
         if send:
             number=re.sub(r"[ ()-]","",number)
             if not re.fullmatch(r"[+]?[0-9]{2,20}",number): st.error("Revisa el número.")
             else:
                 with connect() as db:
-                    changed=db.execute("UPDATE pad SET number=? WHERE key=? AND expires>?",(number,padkey(code),int(time.time()))).rowcount
+                    changed=db.execute("UPDATE pad SET number=? WHERE key=? AND expires>?",(number,device_id,int(time.time()))).rowcount
                 if changed: st.success("Número disponible en el teléfono. Confirma la llamada desde REDIAL.")
-                else: st.error("Código incorrecto o caducado.")
+                else: st.error("Teléfono desconectado.")
 if menu == "Resumen":
     st.info("La validación es gratuita y local. No comprueba si la línea está activa ni consulta operador actual de terceros. Fijo/móvil y operador quedan desconocidos salvo que se importen con procedencia documentada.")
     m = metrics()

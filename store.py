@@ -4,6 +4,8 @@ import json
 import os
 import sqlite3
 from pathlib import Path
+from contextvars import ContextVar
+import hashlib
 from typing import Any
 from contextlib import contextmanager
 from collections.abc import Iterator
@@ -14,10 +16,16 @@ DATA_DIR = Path(os.environ.get("REDIAL_DATA_DIR", Path(__file__).resolve().paren
 DB_PATH = DATA_DIR / "redial.sqlite3"
 
 
+_account_db = ContextVar("redial_account_db", default=None)
+
+def select_account(user: str | None):
+    key = hashlib.sha256(user.encode()).hexdigest() if user else None
+    _account_db.set(DATA_DIR / ("user_" + key + ".sqlite3") if key else None)
+
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(_account_db.get() or DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("""CREATE TABLE IF NOT EXISTS contacts (
         phone TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', format_valid INTEGER NOT NULL,
