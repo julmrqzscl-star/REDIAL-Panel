@@ -47,7 +47,7 @@ st.markdown("""
 [data-testid="stSidebar"]{border-right:1px solid #393939}
 .brand{font:900 clamp(32px,3vw,52px)/1 Arial,sans-serif;letter-spacing:-.05em;color:#fff}
 .brand span{display:block;font:600 10px/2 Arial,sans-serif;letter-spacing:.48em;padding-left:4px}
-.cover{height:clamp(190px,42vh,490px);background-size:cover;background-position:50% 52%;border-radius:9px 9px 0 0}
+.cover{height:clamp(120px,22vh,240px);background-size:cover;background-position:50% 52%;border-radius:9px 9px 0 0}
 .block-container{max-width:1380px;padding:3.7rem clamp(18px,3vw,48px) 2rem}
 [data-testid="stMain"] h3{font:750 clamp(34px,5vw,66px)/1 Arial,sans-serif;letter-spacing:-.055em;color:#fff}
 [data-testid="stMain"] :is([data-testid="stWidgetLabel"],[data-testid="stCaptionContainer"],[data-testid="stMetricValue"]),[data-testid="stSidebar"] label{color:#edeae2}
@@ -55,7 +55,8 @@ st.markdown("""
 [data-testid="stSidebar"] button[kind="primary"],[data-testid="stSidebar"] button:hover{background:#262626;color:#fff}
 [data-testid="stMain"] :is(.stButton,.stFormSubmitButton) button{background:#efeae0;color:#111;border:1px solid #d6d1c8;font-weight:650}
 [data-testid="stMain"] :is(.stButton,.stFormSubmitButton) button p{color:#111}
-@media(max-width:700px){.cover{height:170px}.block-container{padding-top:3.5rem}}
+@media(max-width:700px){.cover{height:100px}.block-container{padding-top:3.5rem}}
+[data-testid="stMain"] [data-testid="stExpander"]{background:#151518;border:1px solid #444148;border-radius:14px} [data-testid="stRadio"] label p,[data-testid="stExpander"] summary p{color:#f7f3ec!important}
 </style>""",unsafe_allow_html=True)
 brand = '<div class="brand">REDIAL<span>INTELLIGENCE</span></div>'
 pages = ["Web Pad","Resumen","Importar","Contactos","Exportar","Android y actualizaciones"]
@@ -79,26 +80,22 @@ if menu == "Web Pad":
     if pairing:
         mode = "Teléfono"
     else:
-        with st.container(border=True):
-            st.markdown("**Dispositivo**")
-            left, right = st.columns([3,2],vertical_alignment="bottom")
-            device = left.selectbox("Dispositivo", ["PC · preparar número","Teléfono · recibir número"],label_visibility="collapsed")
-            if right.button("Vincular teléfono",use_container_width=True):
-                st.session_state.pad_mode = device
-        mode = st.session_state.get("pad_mode")
-        if mode is None:
-            st.stop()
+        mode=st.radio("Usar este dispositivo como",["PC · dirigir campaña","Teléfono · recibir campaña"],horizontal=True)
     with connect() as db:
         db.execute("CREATE TABLE IF NOT EXISTS pad (key TEXT PRIMARY KEY, number TEXT, expires INTEGER)")
         db.execute("CREATE TABLE IF NOT EXISTS dial_batch (device TEXT PRIMARY KEY, batch_id TEXT NOT NULL, payload TEXT NOT NULL)")
+        db.execute("CREATE TABLE IF NOT EXISTS pad_presence (device TEXT PRIMARY KEY, seen INTEGER NOT NULL)")
+        db.execute("DELETE FROM pad_presence WHERE seen < ?",(int(time.time())-1800,))
         db.execute("DELETE FROM dial_batch WHERE device NOT IN (SELECT key FROM pad WHERE expires>?)",(int(time.time()),))
         db.execute("DELETE FROM pad WHERE expires < ?",(int(time.time()),))
     def padkey(value):
         return hashlib.sha256(value.strip().upper().encode()).hexdigest()
     if mode.startswith("Teléfono"):
-        if st.button("Vincular este teléfono"):
+        if "pad_code" not in st.session_state or st.button("Renovar código"):
+            old=st.session_state.get("pad_code")
             code=secrets.token_hex(4).upper()
             with connect() as db:
+                if old: db.execute("DELETE FROM pad WHERE key=?",(padkey(old),))
                 db.execute("INSERT INTO pad VALUES (?,?,?)",(padkey(code),"",int(time.time())+1800))
             st.session_state.pad_code=code
         if "pad_code" in st.session_state:
@@ -108,6 +105,8 @@ if menu == "Web Pad":
             def receive():
                 with connect() as db:
                     r=db.execute("SELECT number FROM pad WHERE key=? AND expires>?",(padkey(st.session_state.pad_code),int(time.time()))).fetchone()
+                    if r:
+                        db.execute("INSERT OR REPLACE INTO pad_presence VALUES (?,?)",(padkey(st.session_state.pad_code),int(time.time())))
                     batch=db.execute("SELECT batch_id,payload FROM dial_batch WHERE device=?",(padkey(st.session_state.pad_code),)).fetchone()
                 if r and batch:
                     import base64
@@ -115,8 +114,8 @@ if menu == "Web Pad":
                     st.markdown(f'<div id="redial-campaign" data-batch="{encoded}">Campaña disponible en el marcador Android.</div>',unsafe_allow_html=True)
                     st.caption("El marcador inicia las llamadas si la recepción automática está habilitada en este teléfono.")
                 if not r: st.info("El vínculo caducó. Vuelve a vincular el teléfono.")
-                elif not r[0]: st.caption("Esperando número de la PC…")
-                else:
+                elif not r[0] and not batch: st.caption("Esperando número de la PC…")
+                elif r[0]:
                     st.write("Número recibido",r[0])
                     st.markdown(f'<a href="tel:{r[0]}" target="_self">Abrir en el marcador</a>',unsafe_allow_html=True)
             receive()
@@ -132,11 +131,24 @@ if menu == "Web Pad":
                 except (UnicodeError,ValueError) as exc:
                     st.error(str(exc))
             device_code=st.text_input("Código del APK",key="batch_device")
+            if device_code:
+                @st.fragment(run_every="5s")
+                def connection_status():
+                    with connect() as db:
+                        row=db.execute("SELECT p.expires,h.seen FROM pad p LEFT JOIN pad_presence h ON h.device=p.key WHERE p.key=?",(padkey(device_code),)).fetchone()
+                    now=int(time.time())
+                    if not row or row["expires"]<=now:
+                        st.caption("Código incorrecto o caducado")
+                    elif row["seen"] and now-row["seen"] < 20:
+                        st.success("Teléfono en línea · pantalla de recepción abierta")
+                    else:
+                        st.warning("Código válido · esperando señal del teléfono")
+                connection_status()
             private=st.toggle("Solicitar número oculto",help="La disponibilidad depende de la SIM y del operador.")
             if st.button("Iniciar campaña en el teléfono",disabled=not numbers or not device_code):
                 device_id=padkey(device_code)
                 batch_id=secrets.token_hex(16)
-                payload=json.dumps(dict(id=batch_id,private=private,numbers=numbers),separators=(",",":"))
+                payload=json.dumps(dict(id=batch_id,private=private,numbers=numbers,carriers={"+"+r["phone"]:r["carrier"][:80] for r in rows if r["format_valid"] and r.get("carrier") and r.get("carrier_source") and r.get("carrier_checked_at")}),separators=(",",":"))
                 with connect() as db:
                     active=db.execute("SELECT 1 FROM pad WHERE key=? AND expires>?",(device_id,int(time.time()))).fetchone()
                     if active:
@@ -226,6 +238,7 @@ if menu == "Exportar":
 
 if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
+    st.link_button("Descargar REDIAL 2.0.7", "https://github.com/julmrqzscl-star/REDIAL-Panel/raw/refs/heads/main/REDIAL-2.0.7.apk")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
