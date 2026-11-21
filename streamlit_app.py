@@ -370,7 +370,7 @@ if menu == "Exportar":
 
 if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
-    st.link_button("Descargar REDIAL 2.0.8", "https://github.com/julmrqzscl-star/REDIAL-Panel/raw/refs/heads/main/REDIAL-2.0.8.apk")
+    st.link_button("Descargar REDIAL 2.0.9", "https://github.com/julmrqzscl-star/REDIAL-Panel/raw/refs/heads/main/REDIAL-2.0.9.apk")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
