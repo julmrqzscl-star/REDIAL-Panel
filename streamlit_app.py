@@ -90,6 +90,10 @@ if menu == "Web Pad":
         db.execute("DELETE FROM pad WHERE expires < ?",(int(time.time()),))
     def padkey(value):
         return hashlib.sha256(value.strip().upper().encode()).hexdigest()
+    states={"En pausa","En llamada","Revisar intento","Listo para marcar","Marcando campaña","Finalizada"}
+    with connect() as db:
+        db.execute("CREATE TABLE IF NOT EXISTS dial_status(device TEXT PRIMARY KEY, phase TEXT, position INTEGER, total INTEGER, batch TEXT, seen INTEGER)")
+        db.execute("DELETE FROM dial_status WHERE seen<?",(int(time.time())-86400,))
     if mode.startswith("Teléfono"):
         if "pad_code" not in st.session_state or st.button("Renovar código"):
             old=st.session_state.get("pad_code")
@@ -101,6 +105,28 @@ if menu == "Web Pad":
         if "pad_code" in st.session_state:
             st.code(st.session_state.pad_code)
             st.caption("Escribe este código en el Web Pad de la PC. Válido durante 30 minutos. Mantén esta vista abierta.")
+            from streamlit.components.v2 import component
+            reporter=component("redial_status", js="""
+            export default function({setStateValue}) {
+                let last="", sent=0;
+                const receive=e=>{
+                    const value=JSON.stringify(e.detail), now=Date.now();
+                    if(value===last && now-sent<8000) return;
+                    last=value; sent=now;
+                    setStateValue("report",{...e.detail,tick:now});
+                };
+                window.addEventListener("redial-status",receive);
+                return ()=>window.removeEventListener("redial-status",receive);
+            }
+            """)
+            update=reporter(key="dialstatus",on_report_change=lambda:None)
+            report=getattr(update,"report",None)
+            if isinstance(report,dict) and report.get("phase") in states and report.get("tick")!=st.session_state.get("dial_tick"):
+                pos,total=report.get("index"),report.get("total")
+                if isinstance(pos,int) and isinstance(total,int) and 0<=pos<=total:
+                    with connect() as db:
+                        db.execute("INSERT OR REPLACE INTO dial_status VALUES(?,?,?,?,?,?)",(padkey(st.session_state.pad_code),report["phase"],pos,total,str(report.get("id",""))[:32],int(time.time())))
+                    st.session_state.dial_tick=report.get("tick")
             @st.fragment(run_every="3s")
             def receive():
                 with connect() as db:
@@ -108,6 +134,8 @@ if menu == "Web Pad":
                     if r:
                         db.execute("INSERT OR REPLACE INTO pad_presence VALUES (?,?)",(padkey(st.session_state.pad_code),int(time.time())))
                     batch=db.execute("SELECT batch_id,payload FROM dial_batch WHERE device=?",(padkey(st.session_state.pad_code),)).fetchone()
+                if r:
+                    st.markdown(f'<span id="redial-pulse" data-pulse="{time.time_ns()}"></span>',unsafe_allow_html=True)
                 if r and batch:
                     import base64
                     encoded=base64.urlsafe_b64encode(batch["payload"].encode()).decode()
@@ -121,7 +149,9 @@ if menu == "Web Pad":
             receive()
     else:
         with st.expander("Campaña de marcación", expanded=True):
-            upload = st.file_uploader("Base que se va a marcar (CSV)",type=["csv"],key="campaign_csv")
+            device_col, base_col = st.columns([1,1.4])
+            device_code=device_col.text_input("Código del APK",key="batch_device",placeholder="Código del teléfono")
+            upload = base_col.file_uploader("Base que se va a marcar (CSV)",type=["csv"],key="campaign_csv")
             numbers=[]
             if upload:
                 try:
@@ -130,32 +160,38 @@ if menu == "Web Pad":
                     st.caption(f"{len(numbers)} números válidos y únicos para esta campaña.")
                 except (UnicodeError,ValueError) as exc:
                     st.error(str(exc))
-            device_code=st.text_input("Código del APK",key="batch_device")
             if device_code:
                 @st.fragment(run_every="5s")
                 def connection_status():
                     with connect() as db:
-                        row=db.execute("SELECT p.expires,h.seen FROM pad p LEFT JOIN pad_presence h ON h.device=p.key WHERE p.key=?",(padkey(device_code),)).fetchone()
+                        row=db.execute("SELECT p.expires,h.seen AS web_seen,s.phase,s.position,s.total,s.seen FROM pad p LEFT JOIN pad_presence h ON h.device=p.key LEFT JOIN dial_status s ON s.device=p.key WHERE p.key=?",(padkey(device_code),)).fetchone()
                     now=int(time.time())
                     if not row or row["expires"]<=now:
                         st.caption("Código incorrecto o caducado")
-                    elif row["seen"] and now-row["seen"] < 20:
-                        st.success("Teléfono en línea · pantalla de recepción abierta")
+                    elif row["seen"] and now-row["seen"]<20:
+                        st.success("APK vinculado · "+row["phase"])
+                        if row["total"]:
+                            st.progress(row["position"]/row["total"],text=f'Posición de campaña · {row["position"]} de {row["total"]}')
+                    elif row["seen"]:
+                        st.warning(f'Sin señal del APK · última señal hace {now-row["seen"]} segundos')
+                    elif row["web_seen"] and now-row["web_seen"]<20:
+                        st.caption("Receptor web en línea · esperando estado del APK")
                     else:
-                        st.warning("Código válido · esperando señal del teléfono")
+                        st.caption("Esperando conexión")
                 connection_status()
             private=st.toggle("Solicitar número oculto",help="La disponibilidad depende de la SIM y del operador.")
             if st.button("Iniciar campaña en el teléfono",disabled=not numbers or not device_code):
                 device_id=padkey(device_code)
                 batch_id=secrets.token_hex(16)
-                payload=json.dumps(dict(id=batch_id,private=private,numbers=numbers,carriers={"+"+r["phone"]:r["carrier"][:80] for r in rows if r["format_valid"] and r.get("carrier") and r.get("carrier_source") and r.get("carrier_checked_at")}),separators=(",",":"))
+                payload=json.dumps(dict(id=batch_id,private=private,numbers=numbers),separators=(",",":"))
                 with connect() as db:
                     active=db.execute("SELECT 1 FROM pad WHERE key=? AND expires>?",(device_id,int(time.time()))).fetchone()
                     if active:
                         db.execute("INSERT OR REPLACE INTO dial_batch VALUES(?,?,?)",(device_id,batch_id,payload))
                 if active: st.success("Campaña preparada para el APK. El progreso aparece en el teléfono.")
                 else: st.error("Código incorrecto o caducado.")
-        st.markdown("**Enviar un solo número**")
+        st.divider()
+        st.markdown("**Marcación individual**")
         with st.form("pad_send"):
             code=st.text_input("Código del teléfono")
             number=st.text_input("Número para el marcador")
@@ -238,7 +274,7 @@ if menu == "Exportar":
 
 if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
-    st.link_button("Descargar REDIAL 2.0.7", "https://github.com/julmrqzscl-star/REDIAL-Panel/raw/refs/heads/main/REDIAL-2.0.7.apk")
+    st.link_button("Descargar REDIAL 2.0.8", "https://github.com/julmrqzscl-star/REDIAL-Panel/raw/refs/heads/main/REDIAL-2.0.8.apk")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
