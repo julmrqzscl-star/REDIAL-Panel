@@ -17,6 +17,7 @@ def setup(db):
         "CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(campaign,state,due)",
         "CREATE TABLE IF NOT EXISTS attempts(token TEXT PRIMARY KEY,job INTEGER,result TEXT,finished INTEGER)",
         "CREATE TABLE IF NOT EXISTS line_rules(prefix TEXT PRIMARY KEY,kind TEXT,carrier TEXT,source TEXT,checked TEXT)",
+        "CREATE TABLE IF NOT EXISTS dial_control(device TEXT PRIMARY KEY,running INTEGER NOT NULL)",
         "CREATE TABLE IF NOT EXISTS receivers(device TEXT PRIMARY KEY,version INTEGER,last_seen INTEGER)"
     ):
         db.execute(ddl)
@@ -43,8 +44,16 @@ def in_window(now,start,end):
     if start<end: return start<=minute<end
     return minute>=start or minute<end
 
+def queue_running(db,device):
+    row=db.execute("SELECT running FROM dial_control WHERE device=?",(device,)).fetchone()
+    return bool(row and row[0])
+
+def set_running(db,device,running):
+    db.execute("INSERT OR REPLACE INTO dial_control(device,running) VALUES(?,?)",(device,int(running)))
+
 def dispatch(db,device,now):
     setup(db)
+    if not queue_running(db,device): return None
     sql="""SELECT j.*,c.settings FROM jobs j JOIN campaigns c ON c.id=j.campaign
            WHERE c.device=? AND j.state IN ('Pendiente','Programada','Entregada')
            ORDER BY (j.state='Entregada') DESC,j.due,j.id"""

@@ -236,8 +236,9 @@ if menu == "Web Pad":
                     receiver=db.execute("SELECT version FROM receivers WHERE device=?",(padkey(st.session_state.pad_code),)).fetchone()
                     if receiver and receiver[0]>=210:
                         batch=campaign.dispatch(db,padkey(st.session_state.pad_code),int(time.time()))
+                    allow=int(campaign.queue_running(db,padkey(st.session_state.pad_code)))
                 if r:
-                    st.markdown(f'<span id="redial-pulse" data-pulse="{time.time_ns()}"></span>',unsafe_allow_html=True)
+                    st.markdown(f'<span id="redial-pulse" data-running="{allow}" data-pulse="{time.time_ns()}"></span>',unsafe_allow_html=True)
                 if r and batch:
                     import base64
                     encoded=base64.urlsafe_b64encode(batch["payload"].encode()).decode()
@@ -252,7 +253,7 @@ if menu == "Web Pad":
     else:
         def available_devices():
             with connect() as db:
-                return [r[0] for r in db.execute("SELECT p.key FROM pad p JOIN pad_presence h ON h.device=p.key WHERE h.seen>=? AND p.expires>? ORDER BY p.key",(int(time.time())-20,int(time.time())))]
+                return [r[0] for r in db.execute("SELECT p.key FROM pad p JOIN pad_presence h ON h.device=p.key WHERE h.seen>=? AND p.expires>? ORDER BY p.key",(int(time.time())-90,int(time.time())))]
         devices=available_devices()
         previous=st.session_state.get("selected_pad")
         options=sorted(set(devices+([previous] if previous else [])))
@@ -271,7 +272,7 @@ if menu == "Web Pad":
             select_account(st.session_state.get("operator"))
             campaign_ui.collections_desk()
         desk()
-        st.markdown("### Preparar campaña")
+
         with st.container(border=True):
             if len(options)>1:
                 selected=st.selectbox("Teléfono para esta campaña",options,index=options.index(previous) if previous in options else None,key="pad_choice",on_change=lambda: st.session_state.update(selected_pad=st.session_state.pad_choice),format_func=device_label,placeholder="Selecciona un teléfono")
@@ -281,6 +282,27 @@ if menu == "Web Pad":
                 elif selected: st.warning(device_label(selected))
                 else: st.info("En REDIAL para Android, toca Vincular con Web Pad. Tu teléfono aparecerá aquí.")
             device_id=selected if selected in devices else None
+            st.markdown("### Control de llamadas")
+            @st.fragment(run_every="4s")
+            def dial_controls():
+                select_account(st.session_state.get("operator"))
+                with connect() as db:
+                    running=campaign.queue_running(db,selected)
+                    count=db.execute("SELECT count(*) FROM jobs JOIN campaigns ON campaigns.id=jobs.campaign WHERE device=? AND state IN ('Pendiente','Programada','Entregada')",(selected,)).fetchone()[0]
+                    online=selected in available_devices()
+                    left,right=st.columns(2)
+                    if left.button("Iniciar / reanudar llamadas",icon=":material/play_arrow:",type="primary",disabled=not online or not count or running,use_container_width=True):
+                        campaign.set_running(db,selected,True)
+                        running=True
+                    if right.button("Pausar llamadas",icon=":material/pause:",disabled=not running,use_container_width=True):
+                        campaign.set_running(db,selected,False)
+                        running=False
+                st.caption(("Cola habilitada" if running else "Cola en pausa")+" · "+str(count)+" registros pendientes")
+                if not online: st.caption("Vincula el teléfono para iniciar.")
+                elif not count: st.caption("Agrega una campaña abajo para habilitar el inicio.")
+                else: st.caption("En el teléfono, activa las llamadas de campaña. La pausa detiene nuevas entregas y permite terminar el turno ya enviado.")
+            dial_controls()
+            st.markdown("### Preparar campaña")
             entries,campaign_name,settings=campaign_ui.settings_and_list()
             if selected:
                 @st.fragment(run_every="5s")
@@ -295,6 +317,8 @@ if menu == "Web Pad":
                         st.success("APK vinculado · "+row["phase"])
                         if row["total"]:
                             st.progress(row["position"]/row["total"],text=f'Posición de campaña · {row["position"]} de {row["total"]}')
+                    elif row["seen"] and now-row["seen"]<90:
+                        st.caption("Reconectando con el teléfono · se conserva la cola")
                     elif row["seen"]:
                         st.warning(f'Sin señal del APK · última señal hace {now-row["seen"]} segundos')
                     elif row["web_seen"] and now-row["web_seen"]<20:
@@ -306,7 +330,7 @@ if menu == "Web Pad":
                 with connect() as db:
                     db.execute("BEGIN IMMEDIATE")
                     receiver=db.execute("SELECT version,last_seen FROM receivers WHERE device=?",(device_id,)).fetchone()
-                    if receiver and receiver["version"]>=210 and int(time.time())-receiver["last_seen"]<20:
+                    if receiver and receiver["version"]>=210 and int(time.time())-receiver["last_seen"]<90:
                         campaign.enqueue(db,device_id,campaign_name,settings,entries,int(time.time()))
                         st.success("Campaña en cola. El APK respetará el horario y la SIM predeterminada.")
                     else: st.warning("Abre el receptor en REDIAL 2.1.0 y espera su señal.")
@@ -394,11 +418,11 @@ if menu == "Exportar":
 
 if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
-    apk=Path(__file__).with_name("REDIAL-2.1.2.apk")
+    apk=Path(__file__).with_name("REDIAL-2.1.3.apk")
     if apk.is_file():
-        st.download_button("Descargar REDIAL 2.1.2",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
+        st.download_button("Descargar REDIAL 2.1.3",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
     else:
-        st.warning("El instalador 2.1.2 aún no está disponible en este servidor.")
+        st.warning("El instalador 2.1.3 aún no está disponible en este servidor.")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
