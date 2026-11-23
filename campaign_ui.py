@@ -7,6 +7,34 @@ from core import clean_record,import_csv_text,eligible
 from store import connect,get,list_contacts
 from campaign import setup,classify
 
+
+@st.cache_resource(show_spinner=False)
+def _piper_voice(lang):
+    import subprocess, sys, tempfile
+    from pathlib import Path
+    from piper import PiperVoice
+    voices = {"es-MX":"es_MX-ald-medium", "es-ES":"es_ES-davefx-medium", "en-US":"en_US-lessac-medium"}
+    name = voices[lang]
+    directory = Path(tempfile.gettempdir()) / "redial-piper-voices"
+    directory.mkdir(parents=True, exist_ok=True)
+    model = directory / (name + ".onnx")
+    if not model.is_file() or not (directory / (name + ".onnx.json")).is_file():
+        subprocess.run([sys.executable, "-m", "piper.download_voices", "--data-dir", str(directory), name],
+                       check=True, capture_output=True, timeout=240)
+    return PiperVoice.load(str(model))
+
+def generate_piper_preview(text, lang, rate):
+    import io, wave
+    from piper import SynthesisConfig
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav:
+        _piper_voice(lang).synthesize_wav(text, wav, syn_config=SynthesisConfig(length_scale=1.0 / float(rate)))
+    data = output.getvalue()
+    with wave.open(io.BytesIO(data), "rb") as wav:
+        if wav.getnframes() < wav.getframerate() // 10 or not any(wav.readframes(wav.getnframes())):
+            raise ValueError("La voz generada está vacía o en silencio.")
+    return data
+
 def settings_and_list():
     with connect() as db:
         setup(db)
@@ -59,33 +87,22 @@ def settings_and_list():
         pitch=st.slider("Tono",0.5,2.0,1.0)
         auto=st.checkbox("Reproducir localmente al conectar")
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
-        st.caption("Genera una vista previa de audio en el servidor y reprodúcela aquí.")
-        signature=(body,lang,rate,pitch)
+        st.caption("Vista previa con voz neuronal Piper. La primera generación descarga el modelo y puede tardar unos minutos.")
+        st.caption("La velocidad se aplica a la vista previa; el tono se mantiene para Android.")
+        signature=(body,lang,rate)
         if st.button("Generar vista previa",disabled=not body.strip(),key="generate_voice"):
-            import shutil, subprocess, tempfile
-            from pathlib import Path
-            engine=shutil.which("espeak-ng")
-            if not engine:
+            try:
+                with st.spinner("Preparando voz y generando audio…"):
+                    audio = generate_piper_preview(body, lang, rate)
+                st.session_state.redial_voice_preview=(signature,audio)
+            except Exception as exc:
                 st.session_state.pop("redial_voice_preview",None)
-                st.error("El motor de voz no está disponible. Revisa la instalación del servidor.")
-            else:
-                try:
-                    with tempfile.TemporaryDirectory(prefix="redial-voice-") as temp_dir:
-                        output=Path(temp_dir)/"preview.wav"
-                        dialect={"es-MX":"es-419","es-ES":"es","en-US":"en-us"}[lang]
-                        command=[engine,"-v",dialect,"-s",str(round(175*rate)),
-                                 "-p",str(min(99,round(pitch*50))), "-w",str(output),"--stdin"]
-                        result=subprocess.run(command,input=body.encode("utf-8"),capture_output=True,timeout=25,check=True)
-                        audio=output.read_bytes()
-                        if len(audio)<=44 or audio[:4]!=b"RIFF":
-                            raise ValueError("El motor devolvió audio vacío.")
-                        st.session_state.redial_voice_preview=(signature,audio)
-                except (OSError,subprocess.SubprocessError,ValueError) as exc:
-                    st.session_state.pop("redial_voice_preview",None)
-                    st.error("No se pudo generar la vista previa. "+str(exc))
+                st.error("No se pudo generar la voz. Comprueba la conexión del servidor e inténtalo otra vez.")
+                st.exception(exc)
         preview=st.session_state.get("redial_voice_preview")
         if preview and preview[0]==signature:
             st.audio(preview[1],format="audio/wav")
+            st.download_button("Descargar voz WAV",preview[1],file_name="REDIAL_voz.wav",mime="audio/wav",key="download_voice")
 
     return entries,name,dict(retries=int(retries),interval=int(interval)*60,start=start.strftime("%H:%M"),end=end.strftime("%H:%M"),voice=voice)
 
