@@ -290,6 +290,7 @@ if menu == "Web Pad":
                     running=campaign.queue_running(db,selected)
                     count=db.execute("SELECT count(*) FROM jobs JOIN campaigns ON campaigns.id=jobs.campaign WHERE device=? AND state IN ('Pendiente','Programada','Entregada')",(selected,)).fetchone()[0]
                     online=selected in available_devices()
+                    db_status=db.execute("SELECT phase,seen FROM dial_status WHERE device=?",(selected,)).fetchone()
                     left,right=st.columns(2)
                     if left.button("Iniciar / reanudar llamadas",icon=":material/play_arrow:",type="primary",disabled=not online or not count or running,use_container_width=True):
                         campaign.set_running(db,selected,True)
@@ -297,7 +298,15 @@ if menu == "Web Pad":
                     if right.button("Pausar llamadas",icon=":material/pause:",disabled=not running,use_container_width=True):
                         campaign.set_running(db,selected,False)
                         running=False
-                st.caption(("Cola habilitada" if running else "Cola en pausa")+" · "+str(count)+" registros pendientes")
+                if running:
+                    status=db_status
+                    if status and status["seen"] and int(time.time())-status["seen"]<20 and status["phase"] in ("Listo para marcar","Marcando campaña","En llamada"):
+                        st.success("Campaña activa · "+status["phase"])
+                    else:
+                        st.info("Inicio solicitado · esperando al teléfono")
+                else:
+                    st.warning("Campaña en pausa")
+                st.caption(str(count)+" registros pendientes")
                 if not online: st.caption("Vincula el teléfono para iniciar.")
                 elif not count: st.caption("Agrega una campaña abajo para habilitar el inicio.")
                 else: st.caption("En el teléfono, activa las llamadas de campaña. La pausa detiene nuevas entregas y permite terminar el turno ya enviado.")
@@ -418,11 +427,11 @@ if menu == "Exportar":
 
 if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
-    apk=Path(__file__).with_name("REDIAL-2.1.4.apk")
+    apk=Path(__file__).with_name("REDIAL-2.1.5.apk")
     if apk.is_file():
-        st.download_button("Descargar REDIAL 2.1.4",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
+        st.download_button("Descargar REDIAL 2.1.5",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
     else:
-        st.warning("El instalador 2.1.4 aún no está disponible en este servidor.")
+        st.warning("El instalador 2.1.5 aún no está disponible en este servidor.")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
