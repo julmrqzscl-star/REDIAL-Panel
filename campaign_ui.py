@@ -59,38 +59,33 @@ def settings_and_list():
         pitch=st.slider("Tono",0.5,2.0,1.0)
         auto=st.checkbox("Reproducir localmente al conectar")
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
-        if body:
-            data=json.dumps(voice).replace("<","\\u003c")
-            components.html("""<style>body{margin:0;background:#151518;color:#eee;font:14px sans-serif}button{background:#edeae3;color:#111;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}span{margin-left:12px}</style>
-            <label for="voices">Voz de esta computadora</label><br><select id="voices" style="width:100%;background:#29292b;color:#fff;padding:9px;margin:6px 0 10px;border:1px solid #555;border-radius:7px"></select><br><button id="preview">Escuchar vista previa</button> <button id="stop">Detener</button> <button id="test">Probar sonido</button><span id="msg" role="status"></span><script>
-            const p=PARAM, msg=document.getElementById('msg'), button=document.getElementById('preview'), select=document.getElementById('voices');
-            let activeUtterance=null;
-            document.getElementById('test').addEventListener('click',async()=>{
-                try{const context=new (window.AudioContext||window.webkitAudioContext)();await context.resume();const oscillator=context.createOscillator(), gain=context.createGain();oscillator.frequency.value=660;gain.gain.value=0.12;oscillator.connect(gain);gain.connect(context.destination);oscillator.start();oscillator.stop(context.currentTime+0.35);oscillator.onended=()=>context.close();msg.textContent='Prueba de sonido enviada al navegador'}
-                catch(e){msg.textContent='El navegador bloqueó la prueba de sonido'}
-            });
-            function refreshVoices(){
-                const voices=speechSynthesis.getVoices(), previous=select.value;
-                select.replaceChildren();
-                const relevant=voices.filter(v=>v.lang.toLowerCase().startsWith(p.lang.slice(0,2).toLowerCase()));
-                for(const v of relevant){const o=document.createElement('option');o.value=v.voiceURI;o.textContent=v.name+' · '+v.lang;select.appendChild(o)}
-                if(previous && relevant.some(v=>v.voiceURI===previous)) select.value=previous;
-                if(!relevant.length){const o=document.createElement('option');o.textContent='Sin voces instaladas para este idioma';select.appendChild(o)}
-            }
-            if('speechSynthesis' in window){refreshVoices();speechSynthesis.onvoiceschanged=refreshVoices}
-            document.getElementById('stop').addEventListener('click',()=>{speechSynthesis.cancel();msg.textContent='Reproducción detenida'});
-            button.addEventListener('click',()=>{
-                if(!('speechSynthesis' in window)){msg.textContent='Este navegador no admite voz';return}
-                try{
-                    speechSynthesis.cancel();speechSynthesis.resume();
-                    const u=new SpeechSynthesisUtterance(p.text);activeUtterance=u;u.lang=p.lang;u.rate=p.rate;u.pitch=p.pitch;u.volume=1;
-                    const voices=speechSynthesis.getVoices();u.voice=voices.find(v=>v.voiceURI===select.value)||voices.find(v=>v.lang.toLowerCase()===p.lang.toLowerCase())||voices.find(v=>v.lang.toLowerCase().startsWith(p.lang.slice(0,2).toLowerCase()))||null;
-                    u.onstart=()=>msg.textContent='Reproduciendo en esta computadora';
-                    u.onend=()=>{if(activeUtterance===u){activeUtterance=null;msg.textContent='El navegador terminó la lectura'}};
-                    u.onerror=(event)=>{if(activeUtterance===u){activeUtterance=null;msg.textContent='Error de voz: '+(event.error||'desconocido')}};
-                    msg.textContent='Preparando voz';speechSynthesis.speak(u);
-                }catch(e){msg.textContent='No se pudo iniciar la voz'}
-            });</script>""".replace("PARAM",data),height=125)
+        st.caption("Genera una vista previa de audio en el servidor y reprodúcela aquí.")
+        signature=(body,lang,rate,pitch)
+        if st.button("Generar vista previa",disabled=not body.strip(),key="generate_voice"):
+            import shutil, subprocess, tempfile
+            from pathlib import Path
+            engine=shutil.which("espeak-ng")
+            if not engine:
+                st.session_state.pop("redial_voice_preview",None)
+                st.error("El motor de voz no está disponible. Revisa la instalación del servidor.")
+            else:
+                try:
+                    with tempfile.TemporaryDirectory(prefix="redial-voice-") as temp_dir:
+                        output=Path(temp_dir)/"preview.wav"
+                        dialect={"es-MX":"es-419","es-ES":"es","en-US":"en-us"}[lang]
+                        command=[engine,"-v",dialect,"-s",str(round(175*rate)),
+                                 "-p",str(min(99,round(pitch*50))), "-w",str(output),"--stdin"]
+                        result=subprocess.run(command,input=body.encode("utf-8"),capture_output=True,timeout=25,check=True)
+                        audio=output.read_bytes()
+                        if len(audio)<=44 or audio[:4]!=b"RIFF":
+                            raise ValueError("El motor devolvió audio vacío.")
+                        st.session_state.redial_voice_preview=(signature,audio)
+                except (OSError,subprocess.SubprocessError,ValueError) as exc:
+                    st.session_state.pop("redial_voice_preview",None)
+                    st.error("No se pudo generar la vista previa. "+str(exc))
+        preview=st.session_state.get("redial_voice_preview")
+        if preview and preview[0]==signature:
+            st.audio(preview[1],format="audio/wav")
 
     return entries,name,dict(retries=int(retries),interval=int(interval)*60,start=start.strftime("%H:%M"),end=end.strftime("%H:%M"),voice=voice)
 
@@ -173,3 +168,4 @@ def collections_desk():
                   (query in r["teléfono"] or query in r["campaña"].casefold())]
         if selected: st.dataframe(selected,hide_index=True,use_container_width=True)
         else: st.caption("Sin gestiones que coincidan con la búsqueda.")
+
