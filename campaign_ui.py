@@ -64,6 +64,7 @@ def settings_and_list():
             components.html("""<style>body{margin:0;background:#151518;color:#eee;font:14px sans-serif}button{background:#edeae3;color:#111;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}span{margin-left:12px}</style>
             <label for="voices">Voz de esta computadora</label><br><select id="voices" style="width:100%;background:#29292b;color:#fff;padding:9px;margin:6px 0 10px;border:1px solid #555;border-radius:7px"></select><br><button id="preview">Escuchar vista previa</button> <button id="stop">Detener</button> <button id="test">Probar sonido</button><span id="msg" role="status"></span><script>
             const p=PARAM, msg=document.getElementById('msg'), button=document.getElementById('preview'), select=document.getElementById('voices');
+            let activeUtterance=null;
             document.getElementById('test').addEventListener('click',async()=>{
                 try{const context=new (window.AudioContext||window.webkitAudioContext)();await context.resume();const oscillator=context.createOscillator(), gain=context.createGain();oscillator.frequency.value=660;gain.gain.value=0.12;oscillator.connect(gain);gain.connect(context.destination);oscillator.start();oscillator.stop(context.currentTime+0.35);oscillator.onended=()=>context.close();msg.textContent='Prueba de sonido enviada al navegador'}
                 catch(e){msg.textContent='El navegador bloqueó la prueba de sonido'}
@@ -82,11 +83,11 @@ def settings_and_list():
                 if(!('speechSynthesis' in window)){msg.textContent='Este navegador no admite voz';return}
                 try{
                     speechSynthesis.cancel();speechSynthesis.resume();
-                    const u=new SpeechSynthesisUtterance(p.text);u.lang=p.lang;u.rate=p.rate;u.pitch=p.pitch;
+                    const u=new SpeechSynthesisUtterance(p.text);activeUtterance=u;u.lang=p.lang;u.rate=p.rate;u.pitch=p.pitch;u.volume=1;
                     const voices=speechSynthesis.getVoices();u.voice=voices.find(v=>v.voiceURI===select.value)||voices.find(v=>v.lang.toLowerCase()===p.lang.toLowerCase())||voices.find(v=>v.lang.toLowerCase().startsWith(p.lang.slice(0,2).toLowerCase()))||null;
                     u.onstart=()=>msg.textContent='Reproduciendo en esta computadora';
-                    u.onend=()=>msg.textContent='El navegador terminó la lectura';
-                    u.onerror=()=>msg.textContent='No se pudo reproducir. Revisa el audio y la voz del navegador';
+                    u.onend=()=>{if(activeUtterance===u){activeUtterance=null;msg.textContent='El navegador terminó la lectura'}};
+                    u.onerror=(event)=>{if(activeUtterance===u){activeUtterance=null;msg.textContent='Error de voz: '+(event.error||'desconocido')}};
                     msg.textContent='Preparando voz';speechSynthesis.speak(u);
                 }catch(e){msg.textContent='No se pudo iniciar la voz'}
             });</script>""".replace("PARAM",data),height=125)
