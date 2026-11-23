@@ -316,13 +316,11 @@ if menu == "Web Pad":
                 if changed: st.success("Número disponible en el teléfono. Confirma la llamada desde REDIAL.")
                 else: st.error("Teléfono desconectado.")
 if menu == "Resumen":
-    st.info("La validación es gratuita y local. No comprueba si la línea está activa ni consulta operador actual de terceros. Fijo/móvil y operador quedan desconocidos salvo que se importen con procedencia documentada.")
     m = metrics()
     cols = st.columns(6)
     for col, label, key in zip(cols, ["Contactos", "Formato válido", "Móviles confirmados", "Fijos confirmados", "Tipo desconocido", "Opt-in SMS"], ["total", "valid", "mobile", "fixed", "unknown", "sms_optin"]):
         col.metric(label, m.get(key, 0))
     st.metric("Opt-in WhatsApp", m.get("whatsapp_optin", 0))
-    st.caption("Los contadores de consentimiento son informativos. La exportación aplica filtros estrictos, incluyendo evidencia y fecha de consentimiento.")
 
 if menu == "Importar":
     st.subheader("Importar una lista CSV")
@@ -392,8 +390,6 @@ if menu == "Android y actualizaciones":
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
     st.warning("Para Android, la API necesita ser accesible desde la misma red local. El prototipo no cifra tráfico HTTP; usa solo una red de confianza y no publiques puertos en Internet.")
 
-st.divider()
-st.caption("REDIAL · Gestión de cobranza · Prototipo local · No envía SMS/WhatsApp · Validación de actividad y operador actual no disponible sin fuente autorizada.")
 
 
 
