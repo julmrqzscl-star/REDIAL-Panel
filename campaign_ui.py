@@ -61,8 +61,22 @@ def settings_and_list():
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
         if body:
             data=json.dumps(voice).replace("<","\\u003c")
-            components.html("""<button onclick="preview()">Escuchar vista previa</button><span id="msg"></span><script>
-            function preview(){const p=PARAM;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(p.text);u.lang=p.lang;u.rate=p.rate;u.pitch=p.pitch;u.onerror=()=>msg.textContent=' Voz no disponible';speechSynthesis.speak(u)}catch(e){msg.textContent=' Voz no disponible'}}</script>""".replace("PARAM",data),height=40)
+            components.html("""<style>body{margin:0;background:#151518;color:#eee;font:14px sans-serif}button{background:#edeae3;color:#111;border:0;border-radius:8px;padding:10px 16px;cursor:pointer}span{margin-left:12px}</style>
+            <button id="preview">Escuchar vista previa</button><span id="msg" role="status"></span><script>
+            const p=PARAM, msg=document.getElementById('msg'), button=document.getElementById('preview');
+            button.addEventListener('click',()=>{
+                if(!('speechSynthesis' in window)){msg.textContent='Este navegador no admite voz';return}
+                try{
+                    speechSynthesis.cancel();speechSynthesis.resume();
+                    const u=new SpeechSynthesisUtterance(p.text);u.lang=p.lang;u.rate=p.rate;u.pitch=p.pitch;
+                    const voices=speechSynthesis.getVoices();u.voice=voices.find(v=>v.lang.toLowerCase()===p.lang.toLowerCase())||voices.find(v=>v.lang.toLowerCase().startsWith(p.lang.slice(0,2).toLowerCase()))||null;
+                    u.onstart=()=>msg.textContent='Reproduciendo en esta computadora';
+                    u.onend=()=>msg.textContent='Vista previa terminada';
+                    u.onerror=()=>msg.textContent='No se pudo reproducir. Revisa el audio y la voz del navegador';
+                    msg.textContent='Preparando voz';speechSynthesis.speak(u);
+                }catch(e){msg.textContent='No se pudo iniciar la voz'}
+            });</script>""".replace("PARAM",data),height=55)
+
     return entries,name,dict(retries=int(retries),interval=int(interval)*60,start=start.strftime("%H:%M"),end=end.strftime("%H:%M"),voice=voice)
 
 def results():
