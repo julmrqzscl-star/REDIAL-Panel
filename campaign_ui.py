@@ -8,13 +8,18 @@ from store import connect,get,list_contacts
 from campaign import setup,classify
 
 
-@st.cache_resource(show_spinner=False)
-def _piper_voice(lang):
+PIPER_VOICES = {
+    "es-MX": {"Ald": "es_MX-ald-medium", "Claude": "es_MX-claude-high"},
+    "es-ES": {"Dave": "es_ES-davefx-medium", "Carl": "es_ES-carlfm-x_low"},
+    "en-US": {"Lessac": "en_US-lessac-medium"},
+}
+
+@st.cache_resource(show_spinner=False, max_entries=2)
+def _piper_voice(lang, voice_name):
     import subprocess, sys, tempfile
     from pathlib import Path
     from piper import PiperVoice
-    voices = {"es-MX":"es_MX-ald-medium", "es-ES":"es_ES-davefx-medium", "en-US":"en_US-lessac-medium"}
-    name = voices[lang]
+    name = PIPER_VOICES[lang][voice_name]
     directory = Path(tempfile.gettempdir()) / "redial-piper-voices"
     directory.mkdir(parents=True, exist_ok=True)
     model = directory / (name + ".onnx")
@@ -23,12 +28,12 @@ def _piper_voice(lang):
                        check=True, capture_output=True, timeout=240)
     return PiperVoice.load(str(model))
 
-def generate_piper_preview(text, lang, rate):
+def generate_piper_preview(text, lang, rate, voice_name=None):
     import io, wave
     from piper import SynthesisConfig
     output = io.BytesIO()
     with wave.open(output, "wb") as wav:
-        _piper_voice(lang).synthesize_wav(text, wav, syn_config=SynthesisConfig(length_scale=1.0 / float(rate)))
+        _piper_voice(lang, voice_name or next(iter(PIPER_VOICES[lang]))).synthesize_wav(text, wav, syn_config=SynthesisConfig(length_scale=1.0 / float(rate)))
     data = output.getvalue()
     with wave.open(io.BytesIO(data), "rb") as wav:
         if wav.getnframes() < wav.getframerate() // 10 or not any(wav.readframes(wav.getnframes())):
@@ -83,17 +88,18 @@ def settings_and_list():
     with st.expander("Mensaje de campaña"):
         body=st.text_area("Texto del mensaje",max_chars=2000)
         lang=st.selectbox("Idioma",["es-MX","es-ES","en-US"])
+        voice_name=st.selectbox("Voz de la vista previa", list(PIPER_VOICES[lang]), key="piper_voice")
         rate=st.slider("Velocidad",0.5,2.0,1.0)
         pitch=st.slider("Tono",0.5,2.0,1.0)
         auto=st.checkbox("Reproducir localmente al conectar")
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
         st.caption("Vista previa con voz neuronal Piper. La primera generación descarga el modelo y puede tardar unos minutos.")
-        st.caption("La velocidad se aplica a la vista previa; el tono se mantiene para Android.")
-        signature=(body,lang,rate)
+        st.caption("La voz elegida y la velocidad se aplican a esta vista previa. El teléfono usa sus propias voces; el tono corresponde a Android.")
+        signature=(body,lang,rate,voice_name)
         if st.button("Generar vista previa",disabled=not body.strip(),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
-                    audio = generate_piper_preview(body, lang, rate)
+                    audio = generate_piper_preview(body, lang, rate, voice_name)
                 st.session_state.redial_voice_preview=(signature,audio)
             except Exception as exc:
                 st.session_state.pop("redial_voice_preview",None)
