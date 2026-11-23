@@ -5,10 +5,12 @@ import io
 
 import streamlit as st
 
+import campaign
+import campaign_ui
 from core import build_export, import_csv_text
 from store import import_records, list_contacts, metrics, upsert
 
-st.set_page_config(page_title="REDIAL Intelligence v2.0", page_icon="📡", layout="wide",initial_sidebar_state="auto")
+st.set_page_config(page_title="REDIAL · Gestión de cobranza", page_icon="📡", layout="wide",initial_sidebar_state="auto")
 import hmac
 import hashlib
 
@@ -123,6 +125,11 @@ st.markdown("""
 [data-testid="stMain"] :is(.stButton,.stFormSubmitButton) button p{color:#111}
 @media(max-width:700px){.cover{height:100px}.block-container{padding-top:3.5rem}}
 [data-testid="stMain"] [data-testid="stExpander"]{background:#151518;border:1px solid #444148;border-radius:14px} [data-testid="stRadio"] label p,[data-testid="stExpander"] summary p{color:#f7f3ec!important}
+.cover{display:flex;flex-direction:column;justify-content:flex-end;padding:22px 30px;box-sizing:border-box;background-color:#111;background-blend-mode:lighten;border:1px solid #434345;border-radius:18px;color:#fff;text-shadow:0 2px 10px #000}
+.cover strong{font:800 clamp(30px,5vw,64px)/1 Arial;letter-spacing:-.065em}.cover span{font:600 10px/2 sans-serif;letter-spacing:.42em}
+[data-testid="stMetric"]{background:#202124;border-color:#47484c;border-radius:16px}
+[data-testid="stMetricValue"]{font-variant-numeric:tabular-nums;font-weight:650}
+[data-testid="stMain"] h3{font-size:clamp(27px,4vw,48px)}
 </style>""",unsafe_allow_html=True)
 brand = '<div class="brand">REDIAL<span>INTELLIGENCE</span></div>'
 pages = ["Web Pad","Resumen","Importar","Contactos","Exportar","Android y actualizaciones"]
@@ -137,7 +144,7 @@ if not pairing:
                 st.rerun()
 else:
     menu = "Web Pad"
-st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"></div>',unsafe_allow_html=True)
+st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"><strong>REDIAL</strong><span>INTELLIGENCE</span></div>',unsafe_allow_html=True)
 require_access()
 if st.session_state.get("operator") or st.session_state.get("master_stamp") or st.session_state.get("session_key"):
     with st.sidebar:
@@ -148,12 +155,13 @@ if st.session_state.get("operator") or st.session_state.get("master_stamp") or s
 if menu == "Web Pad":
     import secrets, sqlite3, time, re, hashlib, json
     from store import DB_PATH, connect
-    st.subheader("Web Pad")
+    st.subheader("Vincular teléfono" if pairing else "Mesa de cobranza")
     if pairing:
         mode = "Teléfono"
     else:
         mode="PC"
     with connect() as db:
+        campaign.setup(db)
         db.execute("CREATE TABLE IF NOT EXISTS pad (key TEXT PRIMARY KEY, number TEXT, expires INTEGER)")
         db.execute("CREATE TABLE IF NOT EXISTS dial_batch (device TEXT PRIMARY KEY, batch_id TEXT NOT NULL, payload TEXT NOT NULL)")
         db.execute("CREATE TABLE IF NOT EXISTS pad_presence (device TEXT PRIMARY KEY, seen INTEGER NOT NULL)")
@@ -197,6 +205,9 @@ if menu == "Web Pad":
                 pos,total=report.get("index"),report.get("total")
                 if isinstance(pos,int) and isinstance(total,int) and 0<=pos<=total:
                     with connect() as db:
+                        device=padkey(st.session_state.pad_code)
+                        db.execute("INSERT OR REPLACE INTO receivers VALUES(?,?,?)",(device,int(report.get("protocol",0)),int(time.time())))
+                        campaign.record_result(db,device,str(report.get("resultId","")),str(report.get("result","")),int(time.time()))
                         db.execute("INSERT OR REPLACE INTO dial_status VALUES(?,?,?,?,?,?)",(padkey(st.session_state.pad_code),report["phase"],pos,total,str(report.get("id",""))[:32],int(time.time())))
                     st.session_state.dial_tick=report.get("tick")
             @st.fragment(run_every="3s")
@@ -208,6 +219,9 @@ if menu == "Web Pad":
                     if r:
                         db.execute("INSERT OR REPLACE INTO pad_presence VALUES (?,?)",(padkey(st.session_state.pad_code),int(time.time())))
                     batch=db.execute("SELECT batch_id,payload FROM dial_batch WHERE device=?",(padkey(st.session_state.pad_code),)).fetchone()
+                    receiver=db.execute("SELECT version FROM receivers WHERE device=?",(padkey(st.session_state.pad_code),)).fetchone()
+                    if receiver and receiver[0]>=210:
+                        batch=campaign.dispatch(db,padkey(st.session_state.pad_code),int(time.time()))
                 if r:
                     st.markdown(f'<span id="redial-pulse" data-pulse="{time.time_ns()}"></span>',unsafe_allow_html=True)
                 if r and batch:
@@ -238,6 +252,12 @@ if menu == "Web Pad":
             if available_devices()!=devices:
                 st.rerun()
         discover()
+        @st.fragment(run_every="8s")
+        def desk():
+            select_account(st.session_state.get("operator"))
+            campaign_ui.collections_desk()
+        desk()
+        st.markdown("### Preparar campaña")
         with st.container(border=True):
             if len(options)>1:
                 selected=st.selectbox("Teléfono para esta campaña",options,index=options.index(previous) if previous in options else None,key="pad_choice",on_change=lambda: st.session_state.update(selected_pad=st.session_state.pad_choice),format_func=device_label,placeholder="Selecciona un teléfono")
@@ -247,16 +267,7 @@ if menu == "Web Pad":
                 elif selected: st.warning(device_label(selected))
                 else: st.info("En REDIAL para Android, toca Vincular con Web Pad. Tu teléfono aparecerá aquí.")
             device_id=selected if selected in devices else None
-            base_col=st
-            upload = base_col.file_uploader("Base que se va a marcar (CSV)",type=["csv"],key="campaign_csv")
-            numbers=[]
-            if upload:
-                try:
-                    rows=import_csv_text(upload.getvalue().decode("utf-8-sig"))
-                    numbers=list(dict.fromkeys("+"+r["phone"] for r in rows if r["format_valid"]))
-                    st.caption(f"{len(numbers)} números válidos y únicos para esta campaña.")
-                except (UnicodeError,ValueError) as exc:
-                    st.error(str(exc))
+            entries,campaign_name,settings=campaign_ui.settings_and_list()
             if selected:
                 @st.fragment(run_every="5s")
                 def connection_status():
@@ -277,16 +288,20 @@ if menu == "Web Pad":
                     else:
                         st.caption("Esperando conexión")
                 connection_status()
-            private=st.toggle("Solicitar número oculto",help="La disponibilidad depende de la SIM y del operador.")
-            if st.button("Iniciar campaña en el teléfono",disabled=not numbers or not device_id):
-                batch_id=secrets.token_hex(16)
-                payload=json.dumps(dict(id=batch_id,private=private,numbers=numbers),separators=(",",":"))
+            if st.button("Agregar campaña a la cola",disabled=not entries or not device_id or not campaign_name.strip()):
                 with connect() as db:
-                    active=db.execute("SELECT 1 FROM pad p JOIN pad_presence h ON h.device=p.key WHERE p.key=? AND p.expires>? AND h.seen>=?",(device_id,int(time.time()),int(time.time())-20)).fetchone()
-                    if active:
-                        db.execute("INSERT OR REPLACE INTO dial_batch VALUES(?,?,?)",(device_id,batch_id,payload))
-                if active: st.success("Campaña preparada para el APK. El progreso aparece en el teléfono.")
-                else: st.error("Teléfono desconectado.")
+                    db.execute("BEGIN IMMEDIATE")
+                    receiver=db.execute("SELECT version,last_seen FROM receivers WHERE device=?",(device_id,)).fetchone()
+                    if receiver and receiver["version"]>=210 and int(time.time())-receiver["last_seen"]<20:
+                        campaign.enqueue(db,device_id,campaign_name,settings,entries,int(time.time()))
+                        st.success("Campaña en cola. El APK respetará el horario y la SIM predeterminada.")
+                    else: st.warning("Abre el receptor en REDIAL 2.1.0 y espera su señal.")
+            with st.expander("Cola y resultados"):
+                @st.fragment(run_every="5s")
+                def show_results():
+                    select_account(st.session_state.get("operator"))
+                    campaign_ui.results()
+                show_results()
         st.divider()
         st.markdown("**Marcación individual**")
         with st.form("pad_send"):
@@ -326,6 +341,7 @@ if menu == "Importar":
 
 if menu == "Contactos":
     st.subheader("Contactos")
+    campaign_ui.rules_editor()
     data = list_contacts(5000)
     if data:
         search = st.text_input("Filtrar por nombre o número")
@@ -362,22 +378,22 @@ if menu == "Exportar":
     st.subheader("Preparar lista autorizada")
     channel = st.radio("Canal de destino", ["SMS", "WhatsApp"], horizontal=True)
     key = channel.lower()
-    export = build_export(list_contacts(100000), key)
-    count = max(0, sum(1 for _ in csv.DictReader(io.StringIO(export))))
-    st.write(f"Contactos elegibles: **{count}**")
-    st.caption("Solo incluye formato telefónico México válido, móvil confirmado, consentimiento del canal, fecha y fuente. No se envía ningún mensaje.")
-    st.download_button(f"Descargar CSV autorizado para {channel}", export, file_name=f"redial_{key}_autorizados.csv", mime="text/csv", disabled=count == 0, type="primary")
+    campaign_ui.export_panel(key)
 
 if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
-    st.link_button("Descargar REDIAL 2.0.9", "https://github.com/julmrqzscl-star/REDIAL-Panel/raw/refs/heads/main/REDIAL-2.0.9.apk")
+    apk=Path(__file__).with_name("REDIAL-2.1.1.apk")
+    if apk.is_file():
+        st.download_button("Descargar REDIAL 2.1.1",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
+    else:
+        st.warning("El instalador 2.1.1 aún no está disponible en este servidor.")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
     st.warning("Para Android, la API necesita ser accesible desde la misma red local. El prototipo no cifra tráfico HTTP; usa solo una red de confianza y no publiques puertos en Internet.")
 
 st.divider()
-st.caption("REDIAL Intelligence v2.0 · Prototipo local · No envía SMS/WhatsApp · Validación de actividad y operador actual no disponible sin fuente autorizada.")
+st.caption("REDIAL · Gestión de cobranza · Prototipo local · No envía SMS/WhatsApp · Validación de actividad y operador actual no disponible sin fuente autorizada.")
 
 
 

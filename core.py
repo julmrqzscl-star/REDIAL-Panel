@@ -30,7 +30,10 @@ ALIASES = {
 
 def normalize_phone(value: Any, default_country: str = "52") -> str:
     """Normalize to digits with Mexico country code; never guesses line type."""
-    digits = re.sub(r"\D", "", str(value or ""))
+    raw = str(value or "").strip()
+    if not re.fullmatch(r"\+?[0-9() .-]+", raw):
+        return ""
+    digits = re.sub(r"\D", "", raw)
     if digits.startswith("00"):
         digits = digits[2:]
     if len(digits) == 10:
