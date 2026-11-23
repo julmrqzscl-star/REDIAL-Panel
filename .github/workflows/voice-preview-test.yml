@@ -1,0 +1,32 @@
+name: Verify Piper voice
+on:
+  push:
+    branches: ["fix/voz-piper-preview"]
+  workflow_dispatch:
+jobs:
+  voice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m py_compile campaign_ui.py
+      - name: Generate Spanish WAV
+        run: |
+          python - <<'PY'
+          import io, wave, struct
+          from campaign_ui import generate_piper_preview
+          data = generate_piper_preview("Hola, esta es una prueba de voz de REDIAL.", "es-MX", 1.0)
+          with wave.open(io.BytesIO(data), "rb") as audio:
+              assert audio.getnchannels() == 1
+              assert audio.getsampwidth() == 2
+              duration = audio.getnframes() / audio.getframerate()
+              samples = audio.readframes(audio.getnframes())
+              assert 0.5 < duration < 30, duration
+              peak = max(abs(x[0]) for x in struct.iter_unpack("<h", samples))
+              assert peak > 500, peak
+              print("Generated WAV:", duration, "seconds; peak:", peak)
+          PY
