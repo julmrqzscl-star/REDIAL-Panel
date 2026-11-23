@@ -418,11 +418,11 @@ if menu == "Exportar":
 
 if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
-    apk=Path(__file__).with_name("REDIAL-2.1.3.apk")
+    apk=Path(__file__).with_name("REDIAL-2.1.4.apk")
     if apk.is_file():
-        st.download_button("Descargar REDIAL 2.1.3",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
+        st.download_button("Descargar REDIAL 2.1.4",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
     else:
-        st.warning("El instalador 2.1.3 aún no está disponible en este servidor.")
+        st.warning("El instalador 2.1.4 aún no está disponible en este servidor.")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
