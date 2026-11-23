@@ -131,6 +131,20 @@ st.markdown("""
 [data-testid="stMetricValue"]{font-variant-numeric:tabular-nums;font-weight:650}
 [data-testid="stMain"] h3{font-size:clamp(27px,4vw,48px)}
 </style>""",unsafe_allow_html=True)
+@st.cache_data
+def display_fonts():
+    def encoded(name):
+        return base64.b64encode(Path(__file__).with_name(name).read_bytes()).decode()
+    return "".join("@font-face{font-family:"+family+";font-display:swap;src:url(data:font/otf;base64,"+encoded(file)+") format('opentype')}" for family,file in [("Creato","CreatoDisplay-Regular.otf"),("Stretch","StretchPro.otf")])
+st.markdown("<style>"+display_fonts()+"""
+.stApp, .stApp :is(p,label,input,textarea,button,h1,h2,h3),.brand span{font-family:Creato,sans-serif!important}
+.cover strong,.brand{font-family:Stretch,sans-serif!important;font-weight:400;letter-spacing:.015em}
+[data-testid="stMetric"]{background:linear-gradient(125deg,rgba(57,57,60,.90),rgba(21,21,23,.97)),url(data:image/jpeg;base64,ART);background-position:center;background-size:cover;padding:clamp(12px,2vw,24px);min-width:0}
+[data-testid="stMetricValue"]{font-size:clamp(28px,3vw,36px)}
+[data-testid="stMetricLabel"] p{font-size:clamp(14px,1.2vw,16px)}
+[data-testid="stDataFrame"]{background:#161618}
+.cover{overflow:hidden}.cover strong{font-size:clamp(26px,5vw,58px)}
+</style>""".replace("ART",cover()),unsafe_allow_html=True)
 brand = '<div class="brand">REDIAL<span>INTELLIGENCE</span></div>'
 pages = ["Web Pad","Resumen","Importar","Contactos","Exportar","Android y actualizaciones"]
 menu = st.session_state.get("section","Web Pad")
@@ -380,11 +394,11 @@ if menu == "Exportar":
 
 if menu == "Android y actualizaciones":
     st.subheader("Cliente Android y actualizaciones")
-    apk=Path(__file__).with_name("REDIAL-2.1.1.apk")
+    apk=Path(__file__).with_name("REDIAL-2.1.2.apk")
     if apk.is_file():
-        st.download_button("Descargar REDIAL 2.1.1",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
+        st.download_button("Descargar REDIAL 2.1.2",apk.read_bytes(),file_name=apk.name,mime="application/vnd.android.package-archive")
     else:
-        st.warning("El instalador 2.1.1 aún no está disponible en este servidor.")
+        st.warning("El instalador 2.1.2 aún no está disponible en este servidor.")
     st.write("La app Kotlin se conecta a la API del PC para ver métricas, ejecutar validaciones de formato y solicitar una exportación autorizada.")
     st.write("El endpoint `/api/v1/mobile/release` sirve `release.json`. Publicar una versión nueva en el servidor actualiza el panel web; Android avisa y abre la descarga del APK con confirmación del usuario.")
     st.code("python -m uvicorn api:app --host 127.0.0.1 --port 8765", language="powershell")
