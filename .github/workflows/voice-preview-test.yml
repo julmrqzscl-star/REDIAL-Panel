@@ -19,7 +19,7 @@ jobs:
           python - <<'PY'
           import io, wave, struct
           from campaign_ui import generate_piper_preview
-          data = generate_piper_preview("Hola, esta es una prueba de voz de REDIAL.", "es-MX", 1.0)
+          data = generate_piper_preview("Hola, esta es una prueba de voz de REDIAL.", "es-MX", 1.0, "Ald")
           with wave.open(io.BytesIO(data), "rb") as audio:
               assert audio.getnchannels() == 1
               assert audio.getsampwidth() == 2
@@ -29,4 +29,14 @@ jobs:
               peak = max(abs(x[0]) for x in struct.iter_unpack("<h", samples))
               assert peak > 500, peak
               print("Generated WAV:", duration, "seconds; peak:", peak)
+          PY
+      - name: Generate alternate Mexican voice
+        run: |
+          python - <<'PY'
+          import io, wave
+          from campaign_ui import generate_piper_preview
+          data = generate_piper_preview("Esta es otra voz de REDIAL.", "es-MX", 1.0, "Claude")
+          with wave.open(io.BytesIO(data), "rb") as audio:
+              assert audio.getnframes() > audio.getframerate() // 2
+          print("Alternate voice generated successfully")
           PY
