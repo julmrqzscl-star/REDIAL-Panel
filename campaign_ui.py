@@ -117,6 +117,10 @@ def settings_and_list():
     with st.expander("Mensaje de campaña"):
         body=st.text_area("Texto del mensaje",max_chars=2000,help="Usa {nombre} para insertar el nombre de cada contacto.")
         st.caption("Personaliza con {nombre}: por ejemplo, Hola {nombre}. Los contactos sin nombre quedarán para revisión.")
+        sample_name=next((entry.get("nombre") for entry in entries.values() if entry.get("nombre")),"María")
+        preview_body=body.replace("{nombre}",sample_name)
+        if "{nombre}" in body:
+            st.caption("Ejemplo de vista previa: " + preview_body)
         lang=st.selectbox("Idioma",["es-MX","es-ES","en-US"])
         voice_name=st.selectbox("Voz de la vista previa", list(PIPER_VOICES[lang]), key="piper_voice")
         style=st.selectbox("Estilo de voz Piper",list(PIPER_STYLES),key="piper_style")
@@ -130,7 +134,7 @@ def settings_and_list():
         st.caption("Vista previa con voz neuronal Piper. La primera generación descarga el modelo y puede tardar unos minutos.")
         st.caption("La voz elegida y la velocidad se aplican a esta vista previa. El teléfono usa sus propias voces; el tono corresponde a Android.")
         st.caption("También puedes escuchar las voces instaladas en tu navegador; esas voces se reproducen en este dispositivo.")
-        browser_settings=json.dumps(dict(text=body,lang=lang,rate=rate,pitch=pitch),ensure_ascii=True).replace("<", "\\u003c")
+        browser_settings=json.dumps(dict(text=preview_body,lang=lang,rate=rate,pitch=pitch),ensure_ascii=True).replace("<", "\\u003c")
         components.html("""
         <div style="font:14px sans-serif;color:#eee;background:#19191b;padding:12px;border-radius:8px">
           <label for="browser-voices">Voces del navegador</label><br>
@@ -169,11 +173,11 @@ def settings_and_list():
         </script>
         """.replace("SETTINGS",browser_settings),height=135)
 
-        signature=(body,lang,rate,voice_name,strength,style)
+        signature=(preview_body,lang,rate,voice_name,strength,style)
         if st.button("Generar vista previa",disabled=not body.strip(),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
-                    audio = generate_piper_preview(body, lang, rate, voice_name, strength, style)
+                    audio = generate_piper_preview(preview_body, lang, rate, voice_name, strength, style)
                 st.session_state.redial_voice_preview=(signature,audio)
             except Exception as exc:
                 st.session_state.pop("redial_voice_preview",None)
