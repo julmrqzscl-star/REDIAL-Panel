@@ -122,12 +122,19 @@ def settings_and_list():
         if "{nombre}" in body:
             st.caption("Ejemplo de vista previa: " + preview_body)
         lang=st.selectbox("Idioma",["es-MX","es-ES","en-US"])
-        engine=st.radio("Motor de vista previa",["Piper","Narración","Speechify"],horizontal=True,help="Speechify genera audio en línea; Piper y Narración se ejecutan en el servidor.")
+        engine=st.radio("Motor de vista previa",["Piper","Narración","Speechify","Fish Audio gratis"],horizontal=True,help="Speechify genera audio en línea; Piper y Narración se ejecutan en el servidor.")
         if engine=="Narración" and not lang.startswith("es"):
             st.info("Las voces de narración están disponibles para español.")
         speechify_key = str(st.secrets.get("SPEECHIFY_API_KEY", "")).strip() if engine=="Speechify" else ""
         speechify_voices = []
-        if engine=="Speechify":
+        fish_key = str(st.secrets.get("FISH_API_KEY", "")).strip() if engine=="Fish Audio gratis" else ""
+        if engine=="Fish Audio gratis":
+            st.caption("El texto de prueba, incluido el nombre personalizado, se envía a Fish Audio y podría conservarse para mejorar el servicio. El modelo gratuito es para evaluación; revisa las condiciones comerciales antes de usarlo en campañas.")
+            if not fish_key:
+                st.info("Falta FISH_API_KEY en los secretos de Streamlit; no compartas la clave en el chat.")
+            voice_name = st.text_input("ID de voz de Fish Audio (opcional)",help="Copia el identificador de una voz disponible en Fish Audio; sin ID se usa la voz predeterminada.",key="fish_voice_id").strip()
+            st.caption("Este motor usa exclusivamente s2.1-pro-free. Su disponibilidad gratuita está anunciada hasta el 30 de noviembre de 2026.")
+        elif engine=="Speechify":
             st.caption("Al generar la vista previa se envía el texto, incluido el nombre personalizado, a Speechify. Usa una cuenta API del plan Free y comprueba sus límites en Speechify.")
             if not speechify_key:
                 st.info("Falta configurar SPEECHIFY_API_KEY en los secretos de Streamlit. No escribas la clave en el chat.")
@@ -159,6 +166,7 @@ def settings_and_list():
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
         st.caption("La primera generación de una voz puede tardar unos minutos mientras se descarga su modelo.")
         if engine=="Narración": st.caption("Narración ofrece voces adicionales en español; el estilo y la intensidad Piper no se aplican a este motor.")
+        if engine=="Fish Audio gratis": st.caption("Los ajustes de Piper no se aplican a Fish Audio. Esta vista previa no se transmite automáticamente durante las llamadas.")
         if engine=="Speechify": st.caption("Los controles de velocidad, tono, estilo e intensidad no afectan la vista previa de Speechify. El audio de Speechify no se transmite automáticamente durante las llamadas.")
         st.caption("La voz elegida y la velocidad se aplican a esta vista previa. El teléfono usa sus propias voces; el tono corresponde a Android.")
         st.caption("También puedes escuchar las voces instaladas en tu navegador; esas voces se reproducen en este dispositivo.")
@@ -202,12 +210,15 @@ def settings_and_list():
         """.replace("SETTINGS",browser_settings),height=135)
 
         signature=(preview_body,lang,rate,voice_name,strength,style,engine)
-        if st.button("Generar vista previa",disabled=not body.strip() or (engine=="Narración" and not lang.startswith("es")) or (engine=="Speechify" and (not speechify_key or not voice_name)),key="generate_voice"):
+        if st.button("Generar vista previa",disabled=not body.strip() or (engine=="Narración" and not lang.startswith("es")) or (engine=="Speechify" and (not speechify_key or not voice_name)) or (engine=="Fish Audio gratis" and not fish_key),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
                     if engine=="Narración":
                         import narrator
                         audio = narrator.generate(preview_body,voice_name,rate)
+                    elif engine=="Fish Audio gratis":
+                        import fish_client
+                        audio = fish_client.synthesize(fish_key,preview_body,voice_name)
                     elif engine=="Speechify":
                         import speechify_client
                         audio = speechify_client.synthesize(speechify_key,preview_body,voice_name,lang)
@@ -220,8 +231,10 @@ def settings_and_list():
                 st.exception(exc)
         preview=st.session_state.get("redial_voice_preview")
         if preview and preview[0]==signature:
-            st.audio(preview[1],format="audio/wav")
-            st.download_button("Descargar voz WAV",preview[1],file_name="REDIAL_voz.wav",mime="audio/wav",key="download_voice")
+            fmt = "audio/mpeg" if engine=="Fish Audio gratis" else "audio/wav"
+            ext = "mp3" if engine=="Fish Audio gratis" else "wav"
+            st.audio(preview[1],format=fmt)
+            st.download_button(f"Descargar voz {ext.upper()}",preview[1],file_name=f"REDIAL_voz.{ext}",mime=fmt,key="download_voice")
 
     return entries,name,dict(retries=int(retries),interval=int(interval)*60,start=start.strftime("%H:%M"),end=end.strftime("%H:%M"),voice=voice)
 
