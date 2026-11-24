@@ -28,7 +28,7 @@ def _piper_voice(lang, voice_name):
                        check=True, capture_output=True, timeout=240)
     return PiperVoice.load(str(model))
 
-def generate_piper_preview(text, lang, rate, voice_name=None):
+def generate_piper_preview(text, lang, rate, voice_name=None, strength=6.0):
     import io, wave
     from piper import SynthesisConfig
     output = io.BytesIO()
@@ -47,8 +47,9 @@ def generate_piper_preview(text, lang, rate, voice_name=None):
     if peak < 100:
         raise ValueError("El motor generó una señal demasiado baja.")
     # Boost quieter speech while limiting peaks to avoid hard digital clipping.
-    scale = 3.0 / 32768.0
-    normalizer = math.tanh(3.0)
+    strength = max(3.0, min(10.0, float(strength)))
+    scale = strength / 32768.0
+    normalizer = math.tanh(strength)
     for index, sample in enumerate(samples):
         samples[index] = round(30000 * math.tanh(sample * scale) / normalizer)
     if sys.byteorder != "little":
@@ -110,6 +111,8 @@ def settings_and_list():
         voice_name=st.selectbox("Voz de la vista previa", list(PIPER_VOICES[lang]), key="piper_voice")
         rate=st.slider("Velocidad",0.5,2.0,1.0)
         pitch=st.slider("Tono",0.5,2.0,1.0)
+        strength=st.select_slider("Intensidad de voz Piper", options=[3.0, 6.0, 10.0], value=6.0, format_func=lambda x: {3.0:"Normal", 6.0:"Alta", 10.0:"Muy alta"}[x])
+        st.caption("Una intensidad mayor eleva las partes suaves y puede modificar el timbre. Se aplica al reproductor y al WAV descargado.")
         auto=st.checkbox("Reproducir localmente al conectar")
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
         st.caption("Vista previa con voz neuronal Piper. La primera generación descarga el modelo y puede tardar unos minutos.")
@@ -154,11 +157,11 @@ def settings_and_list():
         </script>
         """.replace("SETTINGS",browser_settings),height=135)
 
-        signature=(body,lang,rate,voice_name)
+        signature=(body,lang,rate,voice_name,strength)
         if st.button("Generar vista previa",disabled=not body.strip(),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
-                    audio = generate_piper_preview(body, lang, rate, voice_name)
+                    audio = generate_piper_preview(body, lang, rate, voice_name, strength)
                 st.session_state.redial_voice_preview=(signature,audio)
             except Exception as exc:
                 st.session_state.pop("redial_voice_preview",None)
