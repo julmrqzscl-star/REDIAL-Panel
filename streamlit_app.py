@@ -167,7 +167,7 @@ st.markdown("<style>"+display_fonts()+"""
 [data-testid="stDataFrame"]{background:#161618}
 .cover{overflow:hidden}.cover strong{font-size:clamp(26px,5vw,58px)}
 </style>""".replace("ART",cover()),unsafe_allow_html=True)
-brand = '<div class="brand">REDIAL<span>INTELLIGENCE</span></div>'
+brand = '<div class="brand">REDIAL</div>'
 pages = ["Web Pad","Resumen","Importar","Contactos","Exportar","Android y actualizaciones"]
 menu = st.session_state.get("section","Web Pad")
 if not pairing:
@@ -180,7 +180,7 @@ if not pairing:
                 st.rerun()
 else:
     menu = "Web Pad"
-st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"><strong>REDIAL</strong><span>INTELLIGENCE</span></div>',unsafe_allow_html=True)
+st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"><strong>REDIAL</strong></div>',unsafe_allow_html=True)
 require_access()
 if st.session_state.get("operator") or st.session_state.get("master_stamp") or st.session_state.get("session_key"):
     with st.sidebar:
