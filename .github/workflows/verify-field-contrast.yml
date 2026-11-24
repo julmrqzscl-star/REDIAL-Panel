@@ -1,0 +1,24 @@
+name: Verify REDIAL field contrast
+on:
+  push:
+    branches: ["fix/contraste-edge"]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m py_compile streamlit_app.py campaign_ui.py
+      - name: Verify contrast
+        run: |
+          python - <<'PY'
+          def lum(color):
+              rgb=[int(color[i:i+2],16)/255 for i in (0,2,4)]
+              f=lambda c:c/12.92 if c<=0.04045 else ((c+0.055)/1.055)**2.4
+              return sum(a*f(c) for a,c in zip((0.2126,0.7152,0.0722),rgb))
+          ratio=(lum("f8f8f8")+0.05)/(lum("25262b")+0.05)
+          print("Text contrast ratio:",ratio)
+          assert ratio>=4.5
+          PY
