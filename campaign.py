@@ -34,8 +34,11 @@ def classify(record,rules):
 def enqueue(db,device,name,settings,entries,now):
     campaign=secrets.token_hex(12)
     db.execute("INSERT INTO campaigns VALUES(?,?,?,?,?)",(campaign,device,name,json.dumps(settings),now))
-    db.executemany("INSERT INTO jobs(campaign,phone,meta,due) VALUES(?,?,?,?)",
-                   ((campaign,phone,json.dumps(meta,ensure_ascii=False),now) for phone,meta in entries.items()))
+    needs_name = "{nombre}" in settings.get("voice", {}).get("text", "")
+    db.executemany("INSERT INTO jobs(campaign,phone,meta,due,state) VALUES(?,?,?,?,?)",
+                   ((campaign,phone,json.dumps(meta,ensure_ascii=False),now,
+                     "Revisar nombre" if needs_name and not str(meta.get("nombre") or "").strip() else "Pendiente")
+                    for phone,meta in entries.items()))
     return campaign
 
 def in_window(now,start,end):
@@ -62,11 +65,21 @@ def dispatch(db,device,now):
         if job["due"]>now or not in_window(now,settings["start"],settings["end"]):
             if job["state"]=="Entregada": return None
             continue
+        meta=json.loads(job["meta"])
+        voice=dict(settings.get("voice") or {})
+        template=str(voice.get("text") or "")
+        name=str(meta.get("nombre") or "").strip()
+        if "{nombre}" in template and not name:
+            if job["state"] == "Entregada":
+                return None
+            db.execute("UPDATE jobs SET state='Revisar nombre' WHERE id=?", (job["id"],))
+            continue
+        voice["text"]=template.replace("{nombre}", name)
         token=job["token"]
         if job["state"]!="Entregada":
             token=secrets.token_hex(16)
             db.execute("UPDATE jobs SET token=?,state='Entregada',attempt=attempt+1 WHERE id=?",(token,job["id"]))
-        return dict(batch_id=token,payload=json.dumps(dict(id=token,managed=True,numbers=[job["phone"]],meta=json.loads(job["meta"]),voice=settings["voice"],start=settings["start"],end=settings["end"])))
+        return dict(batch_id=token,payload=json.dumps(dict(id=token,managed=True,numbers=[job["phone"]],meta=meta,voice=voice,start=settings["start"],end=settings["end"])))
     return None
 
 def record_result(db,device,token,outcome,now):
