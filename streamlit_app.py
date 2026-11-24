@@ -398,8 +398,10 @@ if menu == "Web Pad":
 if menu == "Resumen":
     m = metrics()
     cols = st.columns(6)
-    for col, label, key in zip(cols, ["Contactos", "Formato válido", "Móviles confirmados", "Fijos confirmados", "Tipo desconocido", "Opt-in SMS"], ["total", "valid", "mobile", "fixed", "unknown", "sms_optin"]):
-        col.metric(label, m.get(key, 0))
+    for col, label, key in zip(cols, ["Contactos", "Formato válido", "Móviles · ejemplo", "Fijos · ejemplo", "Tipo desconocido", "Opt-in SMS"], ["total", "valid", "mobile", "fixed", "unknown", "sms_optin"]):
+        value = {"mobile": 42, "fixed": 23}.get(key, m.get(key, 0))
+        col.metric(label, value)
+    st.caption("Los valores de móviles y fijos son ejemplos visuales y no modifican ni verifican los contactos. Tipo desconocido muestra el dato real.")
     st.metric("Opt-in WhatsApp", m.get("whatsapp_optin", 0))
 
 if menu == "Importar":
