@@ -114,6 +114,46 @@ def settings_and_list():
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
         st.caption("Vista previa con voz neuronal Piper. La primera generación descarga el modelo y puede tardar unos minutos.")
         st.caption("La voz elegida y la velocidad se aplican a esta vista previa. El teléfono usa sus propias voces; el tono corresponde a Android.")
+        st.caption("También puedes escuchar las voces instaladas en tu navegador; esas voces se reproducen en este dispositivo.")
+        browser_settings=json.dumps(dict(text=body,lang=lang,rate=rate,pitch=pitch),ensure_ascii=True).replace("<", "\\u003c")
+        components.html("""
+        <div style="font:14px sans-serif;color:#eee;background:#19191b;padding:12px;border-radius:8px">
+          <label for="browser-voices">Voces del navegador</label><br>
+          <select id="browser-voices" style="max-width:100%;padding:8px;margin:6px 0"></select>
+          <button id="speak" style="padding:8px">Escuchar voz del navegador</button>
+          <button id="stop" style="padding:8px">Detener</button>
+          <div id="voice-status" role="status"></div>
+        </div>
+        <script>
+        const settings = SETTINGS;
+        const select = document.getElementById('browser-voices');
+        const status = document.getElementById('voice-status');
+        function refreshVoices() {
+          const prior=select.value; select.replaceChildren();
+          const all=window.speechSynthesis ? speechSynthesis.getVoices() : [];
+          const matches=all.filter(v => v.lang.toLowerCase().startsWith(settings.lang.slice(0,2).toLowerCase()));
+          for (const voice of matches) { const o=document.createElement('option'); o.value=voice.voiceURI; o.textContent=voice.name+' ('+voice.lang+')'; select.appendChild(o); }
+          if ([...select.options].some(o=>o.value===prior)) select.value=prior;
+          status.textContent=matches.length ? '' : 'No hay voces disponibles para este idioma en el navegador.';
+        }
+        if (window.speechSynthesis) { speechSynthesis.onvoiceschanged=refreshVoices; refreshVoices(); }
+        else status.textContent='Este navegador no ofrece síntesis de voz.';
+        document.getElementById('speak').onclick=()=>{
+          if (!settings.text.trim()) { status.textContent='Escribe un mensaje antes de escucharlo.'; return; }
+          const chosen=speechSynthesis.getVoices().find(v=>v.voiceURI===select.value);
+          if (!chosen) { status.textContent='No hay una voz disponible.'; return; }
+          speechSynthesis.cancel();
+          const u=new SpeechSynthesisUtterance(settings.text); u.voice=chosen; u.lang=chosen.lang;
+          u.rate=settings.rate; u.pitch=settings.pitch;
+          u.onstart=()=>status.textContent='Reproduciendo…';
+          u.onend=()=>status.textContent='Reproducción terminada.';
+          u.onerror=()=>status.textContent='No se pudo reproducir la voz en este navegador.';
+          speechSynthesis.speak(u);
+        };
+        document.getElementById('stop').onclick=()=>{ if(window.speechSynthesis) speechSynthesis.cancel(); };
+        </script>
+        """.replace("SETTINGS",browser_settings),height=135)
+
         signature=(body,lang,rate,voice_name)
         if st.button("Generar vista previa",disabled=not body.strip(),key="generate_voice"):
             try:
