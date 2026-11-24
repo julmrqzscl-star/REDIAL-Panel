@@ -1,0 +1,40 @@
+name: Verify voice styles
+on:
+  push:
+    branches: ["feature/voz-natural"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt faster-whisper
+      - run: python -m py_compile campaign_ui.py
+      - name: Generate profiles and added voices
+        run: |
+          python - <<'PY'
+          import io, wave
+          from pathlib import Path
+          from campaign_ui import generate_piper_preview, PIPER_VOICES, PIPER_STYLES
+          from faster_whisper import WhisperModel
+          sample="Hola, esta es una prueba de voz de REDIAL."
+          for style in PIPER_STYLES:
+              data=generate_piper_preview(sample,"es-MX",1.0,"Ald",4.5,style)
+              with wave.open(io.BytesIO(data),"rb") as audio:
+                  assert audio.getnframes() > audio.getframerate() // 2
+              Path("style_"+style+".wav").write_bytes(data)
+          for lang, voice, text in [("es-ES","Sharvard",sample),("es-ES","MLS 10246",sample),("en-US","Amy","Hello, this is a voice test.")]:
+              data=generate_piper_preview(text,lang,1.0,voice)
+              with wave.open(io.BytesIO(data),"rb") as audio:
+                  assert audio.getnframes() > audio.getframerate() // 2
+              print("Generated",lang,voice)
+          model=WhisperModel("tiny",device="cpu",compute_type="int8")
+          for style in PIPER_STYLES:
+              segments,_=model.transcribe("style_"+style+".wav",language="es",beam_size=5)
+              transcript=" ".join(x.text for x in segments).lower()
+              print(style,transcript)
+              assert "prueba" in transcript
+          PY
