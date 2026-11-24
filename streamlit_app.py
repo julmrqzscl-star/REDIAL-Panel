@@ -127,7 +127,7 @@ st.markdown("""
 [data-testid="stMain"] [data-testid="stExpander"]{background:#151518;border:1px solid #444148;border-radius:14px} [data-testid="stRadio"] label p,[data-testid="stExpander"] summary p{color:#f7f3ec!important}
 .cover{display:flex;flex-direction:column;justify-content:flex-end;padding:22px 30px;box-sizing:border-box;background-color:#111;background-blend-mode:lighten;border:1px solid #434345;border-radius:18px;color:#fff;text-shadow:0 2px 10px #000}
 .cover strong{font:800 clamp(30px,5vw,64px)/1 Arial;letter-spacing:-.065em}.cover span{font:600 10px/2 sans-serif;letter-spacing:.42em}
-[data-testid="stMetric"]{background:#202124;border-color:#47484c;border-radius:16px}
+[data-testid="stMetric"]{background:linear-gradient(145deg,#222428,#151619);border:1px solid #47484c;border-radius:16px;padding:1rem;min-height:92px}
 [data-testid="stMetricValue"]{font-variant-numeric:tabular-nums;font-weight:650}
 [data-testid="stMain"] h3{font-size:clamp(27px,4vw,48px)}
 
@@ -342,7 +342,7 @@ if menu == "Web Pad":
                 stat_cols = st.columns(3)
                 stat_cols[0].metric("Teléfono", "Conectado" if online else "Sin conexión")
                 stat_cols[1].metric("Cola", str(count))
-                stat_cols[2].metric("Campaña", "Activa" if running else "En pausa")
+                stat_cols[2].metric("Campaña", "Inicio solicitado" if running else "En pausa")
                 if running:
                     status=db_status
                     if status and status["seen"] and int(time.time())-status["seen"]<20 and status["phase"] in ("Listo para marcar","Marcando campaña","En llamada"):
