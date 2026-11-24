@@ -1,0 +1,36 @@
+name: Verify spoken output
+on:
+  push:
+    branches: ["debug/piper-transcripcion"]
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt faster-whisper
+      - name: Generate and transcribe sample
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from campaign_ui import generate_piper_preview
+          from faster_whisper import WhisperModel
+          import unicodedata
+          sample = "Hola, esta es una prueba de voz de REDIAL."
+          Path("piper_sample.wav").write_bytes(generate_piper_preview(sample, "es-MX", 1.0, "Ald"))
+          model = WhisperModel("tiny", device="cpu", compute_type="int8")
+          segments, _ = model.transcribe("piper_sample.wav", language="es", beam_size=5)
+          result = " ".join(s.text for s in segments)
+          print("Speech transcription:", result)
+          normalized = unicodedata.normalize("NFKD", result.lower())
+          assert "prueba" in normalized and "voz" in normalized, "Expected speech was not detected"
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: muestra-piper
+          path: piper_sample.wav
+          if-no-files-found: ignore
