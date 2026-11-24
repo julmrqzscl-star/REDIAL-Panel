@@ -10,8 +10,14 @@ from campaign import setup,classify
 
 PIPER_VOICES = {
     "es-MX": {"Ald": "es_MX-ald-medium", "Claude": "es_MX-claude-high"},
-    "es-ES": {"Dave": "es_ES-davefx-medium", "Carl": "es_ES-carlfm-x_low"},
-    "en-US": {"Lessac": "en_US-lessac-medium"},
+    "es-ES": {"Dave": "es_ES-davefx-medium", "Carl": "es_ES-carlfm-x_low", "Sharvard": "es_ES-sharvard-medium", "MLS 10246": "es_ES-mls_10246-low"},
+    "en-US": {"Lessac": "en_US-lessac-medium", "Amy": "en_US-amy-medium"},
+}
+
+PIPER_STYLES = {
+    "Natural": {"noise_scale": 0.667, "noise_w_scale": 0.8, "pace": 1.0},
+    "Conversación": {"noise_scale": 0.75, "noise_w_scale": 0.9, "pace": 1.03},
+    "Formal": {"noise_scale": 0.55, "noise_w_scale": 0.7, "pace": 0.96},
 }
 
 @st.cache_resource(show_spinner=False, max_entries=2)
@@ -28,12 +34,14 @@ def _piper_voice(lang, voice_name):
                        check=True, capture_output=True, timeout=240)
     return PiperVoice.load(str(model))
 
-def generate_piper_preview(text, lang, rate, voice_name=None, strength=4.5):
+def generate_piper_preview(text, lang, rate, voice_name=None, strength=4.5, style="Natural"):
     import io, wave
     from piper import SynthesisConfig
     output = io.BytesIO()
+    preset = PIPER_STYLES[style]
+    config = SynthesisConfig(length_scale=1.0 / (float(rate) * preset["pace"]), noise_scale=preset["noise_scale"], noise_w_scale=preset["noise_w_scale"])
     with wave.open(output, "wb") as wav:
-        _piper_voice(lang, voice_name or next(iter(PIPER_VOICES[lang]))).synthesize_wav(text, wav, syn_config=SynthesisConfig(length_scale=1.0 / float(rate)))
+        _piper_voice(lang, voice_name or next(iter(PIPER_VOICES[lang]))).synthesize_wav(text, wav, syn_config=config)
     import array, math, sys
     with wave.open(io.BytesIO(output.getvalue()), "rb") as wav:
         params = wav.getparams()
@@ -109,6 +117,8 @@ def settings_and_list():
         body=st.text_area("Texto del mensaje",max_chars=2000)
         lang=st.selectbox("Idioma",["es-MX","es-ES","en-US"])
         voice_name=st.selectbox("Voz de la vista previa", list(PIPER_VOICES[lang]), key="piper_voice")
+        style=st.selectbox("Estilo de voz Piper",list(PIPER_STYLES),key="piper_style")
+        st.caption("El estilo ajusta el ritmo y la variación de la voz en esta vista previa; el resultado depende del modelo elegido.")
         rate=st.slider("Velocidad",0.5,2.0,1.0)
         pitch=st.slider("Tono",0.5,2.0,1.0)
         strength=st.select_slider("Intensidad de voz Piper", options=[3.0, 4.5, 6.0], value=4.5, format_func=lambda x: {3.0:"Normal", 4.5:"Alta", 6.0:"Muy alta"}[x])
@@ -157,11 +167,11 @@ def settings_and_list():
         </script>
         """.replace("SETTINGS",browser_settings),height=135)
 
-        signature=(body,lang,rate,voice_name,strength)
+        signature=(body,lang,rate,voice_name,strength,style)
         if st.button("Generar vista previa",disabled=not body.strip(),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
-                    audio = generate_piper_preview(body, lang, rate, voice_name, strength)
+                    audio = generate_piper_preview(body, lang, rate, voice_name, strength, style)
                 st.session_state.redial_voice_preview=(signature,audio)
             except Exception as exc:
                 st.session_state.pop("redial_voice_preview",None)
