@@ -130,6 +130,28 @@ st.markdown("""
 [data-testid="stMetric"]{background:#202124;border-color:#47484c;border-radius:16px}
 [data-testid="stMetricValue"]{font-variant-numeric:tabular-nums;font-weight:650}
 [data-testid="stMain"] h3{font-size:clamp(27px,4vw,48px)}
+
+/* Keep editable fields and selectors legible across browser themes. */
+[data-testid="stMain"] :is([data-testid="stTextInput"],[data-testid="stTextArea"],[data-testid="stNumberInput"]) :is(input,textarea) {
+  color:#f8f8f8 !important; background-color:#25262b !important; caret-color:#fff !important;
+  -webkit-text-fill-color:#f8f8f8 !important; opacity:1;
+}
+[data-testid="stMain"] :is([data-testid="stTextInput"],[data-testid="stTextArea"],[data-testid="stNumberInput"]) :is(input,textarea)::placeholder {
+  color:#c3c5ca !important; -webkit-text-fill-color:#c3c5ca !important; opacity:1;
+}
+[data-testid="stMain"] :is([data-testid="stSelectbox"],[data-testid="stMultiSelect"]) [data-baseweb="select"] > div {
+  color:#f8f8f8 !important; background-color:#25262b !important;
+}
+[data-testid="stMain"] :is([data-testid="stSelectbox"],[data-testid="stMultiSelect"]) [data-baseweb="select"] :is(input,span,div) {
+  color:#f8f8f8 !important; -webkit-text-fill-color:#f8f8f8 !important;
+}
+[data-baseweb="popover"] [role="listbox"], [data-baseweb="popover"] [role="option"] {
+  background-color:#25262b !important; color:#f8f8f8 !important;
+}
+[data-baseweb="popover"] [role="option"]:hover, [data-baseweb="popover"] [role="option"][aria-selected="true"] {
+  background-color:#45474e !important;
+}
+
 </style>""",unsafe_allow_html=True)
 @st.cache_data
 def display_fonts():
