@@ -191,7 +191,9 @@ if st.session_state.get("operator") or st.session_state.get("master_stamp") or s
 if menu == "Web Pad":
     import secrets, sqlite3, time, re, hashlib, json
     from store import DB_PATH, connect
-    st.subheader("Vincular teléfono" if pairing else "Mesa de cobranza")
+    st.subheader("Vincular teléfono" if pairing else "Consola de agente")
+    if not pairing:
+        st.caption("REDIAL · Control de llamadas y gestión de campaña")
     if pairing:
         mode = "Teléfono"
     else:
@@ -304,6 +306,23 @@ if menu == "Web Pad":
                 elif selected: st.warning(device_label(selected))
                 else: st.info("En REDIAL para Android, toca Vincular con Web Pad. Tu teléfono aparecerá aquí.")
             device_id=selected if selected in devices else None
+            st.markdown("### Marcador manual")
+            st.caption("Envía el número al teléfono vinculado; confirma la llamada en Android.")
+            with st.form("pad_send"):
+                number=st.text_input("Número de teléfono",placeholder="+52 55 1234 5678")
+                send=st.form_submit_button("Enviar al teléfono",type="primary",disabled=not device_id,use_container_width=True)
+            if send:
+                number=re.sub(r"[ ()-]","",number)
+                if not re.fullmatch(r"[+]?[0-9]{2,20}",number):
+                    st.error("Revisa el número; usa entre 2 y 20 dígitos.")
+                else:
+                    with connect() as db:
+                        changed=db.execute("UPDATE pad SET number=? WHERE key=? AND expires>?",(number,device_id,int(time.time()))).rowcount
+                    if changed:
+                        st.success("Número enviado. Confirma la llamada en el teléfono.")
+                    else:
+                        st.error("El teléfono se desconectó. Vuelve a vincularlo.")
+            st.divider()
             st.markdown("### Control de llamadas")
             @st.fragment(run_every="4s")
             def dial_controls():
@@ -320,6 +339,10 @@ if menu == "Web Pad":
                     if right.button("Pausar llamadas",icon=":material/pause:",disabled=not running,use_container_width=True):
                         campaign.set_running(db,selected,False)
                         running=False
+                stat_cols = st.columns(3)
+                stat_cols[0].metric("Teléfono", "Conectado" if online else "Sin conexión")
+                stat_cols[1].metric("Cola", str(count))
+                stat_cols[2].metric("Campaña", "Activa" if running else "En pausa")
                 if running:
                     status=db_status
                     if status and status["seen"] and int(time.time())-status["seen"]<20 and status["phase"] in ("Listo para marcar","Marcando campaña","En llamada"):
@@ -371,19 +394,7 @@ if menu == "Web Pad":
                     select_account(st.session_state.get("operator"))
                     campaign_ui.results()
                 show_results()
-        st.divider()
-        st.markdown("**Marcación individual**")
-        with st.form("pad_send"):
-            number=st.text_input("Número para el marcador")
-            send=st.form_submit_button("Pasar al teléfono",disabled=not device_id)
-        if send:
-            number=re.sub(r"[ ()-]","",number)
-            if not re.fullmatch(r"[+]?[0-9]{2,20}",number): st.error("Revisa el número.")
-            else:
-                with connect() as db:
-                    changed=db.execute("UPDATE pad SET number=? WHERE key=? AND expires>?",(number,device_id,int(time.time()))).rowcount
-                if changed: st.success("Número disponible en el teléfono. Confirma la llamada desde REDIAL.")
-                else: st.error("Teléfono desconectado.")
+
 if menu == "Resumen":
     m = metrics()
     cols = st.columns(6)
