@@ -96,6 +96,7 @@ def settings_and_list():
                         for suffix in ("","_source","_checked_at"):
                             combined[field+suffix]=saved[field+suffix]
                 entries[phone]=classify(combined,rules)
+                entries[phone]["nombre"] = str(combined.get("name") or saved.get("name") or "").strip()
                 if entries[phone]["tipo"]=="MÓVIL":
                     combined["line_type"]="mobile"
                 for channel in ("sms","whatsapp"):
@@ -114,7 +115,8 @@ def settings_and_list():
         start=a.time_input("Desde",value=__import__("datetime").time(0))
         end=b.time_input("Hasta",value=__import__("datetime").time(0))
     with st.expander("Mensaje de campaña"):
-        body=st.text_area("Texto del mensaje",max_chars=2000)
+        body=st.text_area("Texto del mensaje",max_chars=2000,help="Usa {nombre} para insertar el nombre de cada contacto.")
+        st.caption("Personaliza con {nombre}: por ejemplo, Hola {nombre}. Los contactos sin nombre quedarán para revisión.")
         lang=st.selectbox("Idioma",["es-MX","es-ES","en-US"])
         voice_name=st.selectbox("Voz de la vista previa", list(PIPER_VOICES[lang]), key="piper_voice")
         style=st.selectbox("Estilo de voz Piper",list(PIPER_STYLES),key="piper_style")
@@ -252,7 +254,7 @@ def collections_desk():
                ORDER BY j.id DESC""")]
     pending=sum(r["resultado"] in ("Pendiente","Programada","Entregada") for r in rows)
     promises=sum(r["resultado"]=="Promesa de pago" for r in rows)
-    review=sum(r["resultado"] in ("Sin confirmar","Aclaración solicitada","Pago reportado") for r in rows)
+    review=sum(r["resultado"] in ("Sin confirmar","Aclaración solicitada","Pago reportado","Revisar nombre") for r in rows)
     columns=st.columns(3)
     for col,title,count in zip(columns,("En cola","Promesas de pago","Por revisar"),(pending,promises,review)):
         col.metric(title,count,border=True)
