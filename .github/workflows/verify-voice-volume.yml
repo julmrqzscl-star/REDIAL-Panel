@@ -1,7 +1,7 @@
 name: Verify voice volume
 on:
   push:
-    branches: ["fix/volumen-piper"]
+    branches: ["fix/volumen-ajustable"]
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -25,15 +25,16 @@ jobs:
           raw = io.BytesIO()
           with wave.open(raw, "wb") as w:
               _piper_voice("es-MX", "Ald").synthesize_wav(text,w,syn_config=SynthesisConfig(length_scale=1.0))
-          data=generate_piper_preview(text,"es-MX",1.0,"Ald")
+          normal=generate_piper_preview(text,"es-MX",1.0,"Ald",3.0)
+          data=generate_piper_preview(text,"es-MX",1.0,"Ald",10.0)
           def levels(data):
               with wave.open(io.BytesIO(data),"rb") as w:
                   values=array.array("h",w.readframes(w.getnframes()))
                   assert w.getsampwidth()==2
                   return math.sqrt(sum(int(x)*int(x) for x in values)/len(values)), max(abs(int(x)) for x in values)
-          before=levels(raw.getvalue()); after=levels(data)
+          before=levels(raw.getvalue()); normal_level=levels(normal); after=levels(data)
           print("RMS before/after:", before[0], after[0], "peak:",after[1])
-          assert after[0]>before[0]*1.1
+          assert after[0]>normal_level[0] and normal_level[0]>before[0]*1.1
           assert after[1] < 32767
           Path("speech.wav").write_bytes(data)
           segments,_=WhisperModel("tiny", device="cpu", compute_type="int8").transcribe("speech.wav",language="es",beam_size=5)
