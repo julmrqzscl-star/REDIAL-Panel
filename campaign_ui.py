@@ -34,11 +34,30 @@ def generate_piper_preview(text, lang, rate, voice_name=None):
     output = io.BytesIO()
     with wave.open(output, "wb") as wav:
         _piper_voice(lang, voice_name or next(iter(PIPER_VOICES[lang]))).synthesize_wav(text, wav, syn_config=SynthesisConfig(length_scale=1.0 / float(rate)))
-    data = output.getvalue()
-    with wave.open(io.BytesIO(data), "rb") as wav:
-        if wav.getnframes() < wav.getframerate() // 10 or not any(wav.readframes(wav.getnframes())):
-            raise ValueError("La voz generada está vacía o en silencio.")
-    return data
+    import array, math, sys
+    with wave.open(io.BytesIO(output.getvalue()), "rb") as wav:
+        params = wav.getparams()
+        if params.sampwidth != 2 or params.nframes < params.framerate // 10:
+            raise ValueError("La voz generada está vacía o tiene un formato incompatible.")
+        samples = array.array("h")
+        samples.frombytes(wav.readframes(params.nframes))
+    if sys.byteorder != "little":
+        samples.byteswap()
+    peak = max((abs(int(sample)) for sample in samples), default=0)
+    if peak < 100:
+        raise ValueError("El motor generó una señal demasiado baja.")
+    # Boost quieter speech while limiting peaks to avoid hard digital clipping.
+    scale = 3.0 / 32768.0
+    normalizer = math.tanh(3.0)
+    for index, sample in enumerate(samples):
+        samples[index] = round(30000 * math.tanh(sample * scale) / normalizer)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    result = io.BytesIO()
+    with wave.open(result, "wb") as wav:
+        wav.setparams(params)
+        wav.writeframes(samples.tobytes())
+    return result.getvalue()
 
 def settings_and_list():
     with connect() as db:
