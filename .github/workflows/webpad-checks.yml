@@ -1,0 +1,35 @@
+name: Web Pad checks
+on:
+  push:
+    branches: [feature/webpad-consola-agente]
+  pull_request:
+    paths: [streamlit_app.py, campaign.py]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m py_compile streamlit_app.py campaign_ui.py campaign.py
+      - name: Check queue and phone selection
+        run: |
+          python - <<'PY'
+          import sqlite3, campaign
+          db = sqlite3.connect(":memory:")
+          db.row_factory = sqlite3.Row
+          campaign.setup(db)
+          settings = {"voice":{"text":"Hola {nombre}"},"start":"00:00","end":"00:00","retries":0,"interval":60}
+          entries = {"+525512345678":{"nombre":"Ana"}, "+525587654321":{"nombre":""}}
+          campaign.enqueue(db,"device","Prueba",settings,entries,1700000000)
+          rows = db.execute("SELECT state FROM jobs ORDER BY id").fetchall()
+          assert [r["state"] for r in rows] == ["Pendiente", "Revisar nombre"]
+          assert campaign.dispatch(db,"device",1700000000) is None
+          campaign.set_running(db,"device",True)
+          batch = campaign.dispatch(db,"device",1700000000)
+          import json
+          assert json.loads(batch["payload"])["voice"]["text"] == "Hola Ana"
+          campaign.set_running(db,"device",False)
+          assert campaign.dispatch(db,"device",1700000001) is None
+          PY
