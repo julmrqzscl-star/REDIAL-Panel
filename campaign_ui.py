@@ -122,7 +122,11 @@ def settings_and_list():
         if "{nombre}" in body:
             st.caption("Ejemplo de vista previa: " + preview_body)
         lang=st.selectbox("Idioma",["es-MX","es-ES","en-US"])
-        voice_name=st.selectbox("Voz de la vista previa", list(PIPER_VOICES[lang]), key="piper_voice")
+        engine=st.radio("Motor de vista previa",["Piper","Narración"],horizontal=True,help="Narración ofrece otras voces locales en español.")
+        if engine=="Narración" and not lang.startswith("es"):
+            st.info("Las voces de narración están disponibles para español.")
+        options=list(PIPER_VOICES[lang]) if engine=="Piper" else ["Dora","Alex","Santa"]
+        voice_name=st.selectbox("Voz de la vista previa",options,key="preview_voice")
         style=st.selectbox("Estilo de voz Piper",list(PIPER_STYLES),key="piper_style")
         st.caption("El estilo ajusta el ritmo y la variación de la voz en esta vista previa; el resultado depende del modelo elegido.")
         rate=st.slider("Velocidad",0.5,2.0,1.0)
@@ -131,7 +135,8 @@ def settings_and_list():
         st.caption("Una intensidad mayor eleva las partes suaves y puede modificar el timbre. Se aplica al reproductor y al WAV descargado.")
         auto=st.checkbox("Reproducir localmente al conectar")
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
-        st.caption("Vista previa con voz neuronal Piper. La primera generación descarga el modelo y puede tardar unos minutos.")
+        st.caption("La primera generación de una voz puede tardar unos minutos mientras se descarga su modelo.")
+        if engine=="Narración": st.caption("Narración ofrece voces adicionales en español; el estilo y la intensidad Piper no se aplican a este motor.")
         st.caption("La voz elegida y la velocidad se aplican a esta vista previa. El teléfono usa sus propias voces; el tono corresponde a Android.")
         st.caption("También puedes escuchar las voces instaladas en tu navegador; esas voces se reproducen en este dispositivo.")
         browser_settings=json.dumps(dict(text=preview_body,lang=lang,rate=rate,pitch=pitch),ensure_ascii=True).replace("<", "\\u003c")
@@ -173,11 +178,15 @@ def settings_and_list():
         </script>
         """.replace("SETTINGS",browser_settings),height=135)
 
-        signature=(preview_body,lang,rate,voice_name,strength,style)
-        if st.button("Generar vista previa",disabled=not body.strip(),key="generate_voice"):
+        signature=(preview_body,lang,rate,voice_name,strength,style,engine)
+        if st.button("Generar vista previa",disabled=not body.strip() or (engine=="Narración" and not lang.startswith("es")),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
-                    audio = generate_piper_preview(preview_body, lang, rate, voice_name, strength, style)
+                    if engine=="Narración":
+                        import narrator
+                        audio = narrator.generate(preview_body,voice_name,rate)
+                    else:
+                        audio = generate_piper_preview(preview_body, lang, rate, voice_name, strength, style)
                 st.session_state.redial_voice_preview=(signature,audio)
             except Exception as exc:
                 st.session_state.pop("redial_voice_preview",None)
