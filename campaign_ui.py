@@ -122,11 +122,33 @@ def settings_and_list():
         if "{nombre}" in body:
             st.caption("Ejemplo de vista previa: " + preview_body)
         lang=st.selectbox("Idioma",["es-MX","es-ES","en-US"])
-        engine=st.radio("Motor de vista previa",["Piper","Narración"],horizontal=True,help="Narración ofrece otras voces locales en español.")
+        engine=st.radio("Motor de vista previa",["Piper","Narración","Speechify"],horizontal=True,help="Speechify genera audio en línea; Piper y Narración se ejecutan en el servidor.")
         if engine=="Narración" and not lang.startswith("es"):
             st.info("Las voces de narración están disponibles para español.")
-        options=list(PIPER_VOICES[lang]) if engine=="Piper" else ["Dora","Alex","Santa"]
-        voice_name=st.selectbox("Voz de la vista previa",options,key="preview_voice")
+        speechify_key = str(st.secrets.get("SPEECHIFY_API_KEY", "")).strip() if engine=="Speechify" else ""
+        speechify_voices = []
+        if engine=="Speechify":
+            st.caption("Al generar la vista previa se envía el texto, incluido el nombre personalizado, a Speechify. Usa una cuenta API del plan Free y comprueba sus límites en Speechify.")
+            if not speechify_key:
+                st.info("Falta configurar SPEECHIFY_API_KEY en los secretos de Streamlit. No escribas la clave en el chat.")
+            if st.button("Cargar voces de Speechify", disabled=not speechify_key):
+                try:
+                    import speechify_client
+                    st.session_state["speechify_voices"] = speechify_client.list_voices(speechify_key)
+                except Exception as exc:
+                    st.session_state.pop("speechify_voices", None)
+                    st.error(str(exc))
+            speechify_voices = st.session_state.get("speechify_voices", [])
+            options = list(range(len(speechify_voices)))
+            if options:
+                choice = st.selectbox("Voz de la vista previa",options,format_func=lambda i: f'{speechify_voices[i]["name"]} · {speechify_voices[i]["locale"]} · {speechify_voices[i]["id"]}',key="speechify_preview_voice")
+                voice_name = speechify_voices[choice]["id"]
+            else:
+                voice_name = ""
+                st.caption("Carga el catálogo para elegir una voz disponible en tu cuenta.")
+        else:
+            options=list(PIPER_VOICES[lang]) if engine=="Piper" else ["Dora","Alex","Santa"]
+            voice_name=st.selectbox("Voz de la vista previa",options,key="preview_voice")
         style=st.selectbox("Estilo de voz Piper",list(PIPER_STYLES),key="piper_style")
         st.caption("El estilo ajusta el ritmo y la variación de la voz en esta vista previa; el resultado depende del modelo elegido.")
         rate=st.slider("Velocidad",0.5,2.0,1.0)
@@ -137,6 +159,7 @@ def settings_and_list():
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
         st.caption("La primera generación de una voz puede tardar unos minutos mientras se descarga su modelo.")
         if engine=="Narración": st.caption("Narración ofrece voces adicionales en español; el estilo y la intensidad Piper no se aplican a este motor.")
+        if engine=="Speechify": st.caption("Los controles de velocidad, tono, estilo e intensidad no afectan la vista previa de Speechify. El audio de Speechify no se transmite automáticamente durante las llamadas.")
         st.caption("La voz elegida y la velocidad se aplican a esta vista previa. El teléfono usa sus propias voces; el tono corresponde a Android.")
         st.caption("También puedes escuchar las voces instaladas en tu navegador; esas voces se reproducen en este dispositivo.")
         browser_settings=json.dumps(dict(text=preview_body,lang=lang,rate=rate,pitch=pitch),ensure_ascii=True).replace("<", "\\u003c")
@@ -179,12 +202,15 @@ def settings_and_list():
         """.replace("SETTINGS",browser_settings),height=135)
 
         signature=(preview_body,lang,rate,voice_name,strength,style,engine)
-        if st.button("Generar vista previa",disabled=not body.strip() or (engine=="Narración" and not lang.startswith("es")),key="generate_voice"):
+        if st.button("Generar vista previa",disabled=not body.strip() or (engine=="Narración" and not lang.startswith("es")) or (engine=="Speechify" and (not speechify_key or not voice_name)),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
                     if engine=="Narración":
                         import narrator
                         audio = narrator.generate(preview_body,voice_name,rate)
+                    elif engine=="Speechify":
+                        import speechify_client
+                        audio = speechify_client.synthesize(speechify_key,preview_body,voice_name,lang)
                     else:
                         audio = generate_piper_preview(preview_body, lang, rate, voice_name, strength, style)
                 st.session_state.redial_voice_preview=(signature,audio)
