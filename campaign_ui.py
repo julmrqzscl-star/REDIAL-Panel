@@ -28,7 +28,7 @@ def _piper_voice(lang, voice_name):
                        check=True, capture_output=True, timeout=240)
     return PiperVoice.load(str(model))
 
-def generate_piper_preview(text, lang, rate, voice_name=None, strength=6.0):
+def generate_piper_preview(text, lang, rate, voice_name=None, strength=4.5):
     import io, wave
     from piper import SynthesisConfig
     output = io.BytesIO()
@@ -47,7 +47,7 @@ def generate_piper_preview(text, lang, rate, voice_name=None, strength=6.0):
     if peak < 100:
         raise ValueError("El motor generó una señal demasiado baja.")
     # Boost quieter speech while limiting peaks to avoid hard digital clipping.
-    strength = max(3.0, min(10.0, float(strength)))
+    strength = max(3.0, min(6.0, float(strength)))
     scale = strength / 32768.0
     normalizer = math.tanh(strength)
     for index, sample in enumerate(samples):
@@ -111,7 +111,7 @@ def settings_and_list():
         voice_name=st.selectbox("Voz de la vista previa", list(PIPER_VOICES[lang]), key="piper_voice")
         rate=st.slider("Velocidad",0.5,2.0,1.0)
         pitch=st.slider("Tono",0.5,2.0,1.0)
-        strength=st.select_slider("Intensidad de voz Piper", options=[3.0, 6.0, 10.0], value=6.0, format_func=lambda x: {3.0:"Normal", 6.0:"Alta", 10.0:"Muy alta"}[x])
+        strength=st.select_slider("Intensidad de voz Piper", options=[3.0, 4.5, 6.0], value=4.5, format_func=lambda x: {3.0:"Normal", 4.5:"Alta", 6.0:"Muy alta"}[x])
         st.caption("Una intensidad mayor eleva las partes suaves y puede modificar el timbre. Se aplica al reproductor y al WAV descargado.")
         auto=st.checkbox("Reproducir localmente al conectar")
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
