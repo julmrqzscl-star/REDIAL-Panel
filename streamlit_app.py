@@ -127,7 +127,7 @@ st.markdown("""
 [data-testid="stMain"] [data-testid="stExpander"]{background:#151518;border:1px solid #444148;border-radius:14px} [data-testid="stRadio"] label p,[data-testid="stExpander"] summary p{color:#f7f3ec!important}
 .cover{display:flex;flex-direction:column;justify-content:flex-end;padding:22px 30px;box-sizing:border-box;background-color:#111;background-blend-mode:lighten;border:1px solid #434345;border-radius:18px;color:#fff;text-shadow:0 2px 10px #000}
 .cover strong{font:800 clamp(30px,5vw,64px)/1 Arial;letter-spacing:-.065em}.cover span{font:600 10px/2 sans-serif;letter-spacing:.42em}
-[data-testid="stMetric"]{background:linear-gradient(145deg,#222428,#151619);border:1px solid #47484c;border-radius:16px;padding:1rem;min-height:92px}
+[data-testid="stMetric"]{background:#202124;border-color:#47484c;border-radius:16px}
 [data-testid="stMetricValue"]{font-variant-numeric:tabular-nums;font-weight:650}
 [data-testid="stMain"] h3{font-size:clamp(27px,4vw,48px)}
 
@@ -167,7 +167,7 @@ st.markdown("<style>"+display_fonts()+"""
 [data-testid="stDataFrame"]{background:#161618}
 .cover{overflow:hidden}.cover strong{font-size:clamp(26px,5vw,58px)}
 </style>""".replace("ART",cover()),unsafe_allow_html=True)
-brand = '<div class="brand">REDIAL</div>'
+brand = '<div class="brand">REDIAL<span>INTELLIGENCE</span></div>'
 pages = ["Web Pad","Resumen","Importar","Contactos","Exportar","Android y actualizaciones"]
 menu = st.session_state.get("section","Web Pad")
 if not pairing:
@@ -180,7 +180,7 @@ if not pairing:
                 st.rerun()
 else:
     menu = "Web Pad"
-st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"><strong>REDIAL</strong></div>',unsafe_allow_html=True)
+st.markdown(f'<div class="cover" role="img" aria-label="Seda negra y fragmentos de plata" style="background-image:url(data:image/jpeg;base64,{cover()})"><strong>REDIAL</strong><span>INTELLIGENCE</span></div>',unsafe_allow_html=True)
 require_access()
 if st.session_state.get("operator") or st.session_state.get("master_stamp") or st.session_state.get("session_key"):
     with st.sidebar:
@@ -191,9 +191,7 @@ if st.session_state.get("operator") or st.session_state.get("master_stamp") or s
 if menu == "Web Pad":
     import secrets, sqlite3, time, re, hashlib, json
     from store import DB_PATH, connect
-    st.subheader("Vincular teléfono" if pairing else "Consola de agente")
-    if not pairing:
-        st.caption("REDIAL · Control de llamadas y gestión de campaña")
+    st.subheader("Vincular teléfono" if pairing else "Mesa de cobranza")
     if pairing:
         mode = "Teléfono"
     else:
@@ -306,23 +304,6 @@ if menu == "Web Pad":
                 elif selected: st.warning(device_label(selected))
                 else: st.info("En REDIAL para Android, toca Vincular con Web Pad. Tu teléfono aparecerá aquí.")
             device_id=selected if selected in devices else None
-            st.markdown("### Marcador manual")
-            st.caption("Envía el número al teléfono vinculado; confirma la llamada en Android.")
-            with st.form("pad_send"):
-                number=st.text_input("Número de teléfono",placeholder="+52 55 1234 5678")
-                send=st.form_submit_button("Enviar al teléfono",type="primary",disabled=not device_id,use_container_width=True)
-            if send:
-                number=re.sub(r"[ ()-]","",number)
-                if not re.fullmatch(r"[+]?[0-9]{2,20}",number):
-                    st.error("Revisa el número; usa entre 2 y 20 dígitos.")
-                else:
-                    with connect() as db:
-                        changed=db.execute("UPDATE pad SET number=? WHERE key=? AND expires>?",(number,device_id,int(time.time()))).rowcount
-                    if changed:
-                        st.success("Número enviado. Confirma la llamada en el teléfono.")
-                    else:
-                        st.error("El teléfono se desconectó. Vuelve a vincularlo.")
-            st.divider()
             st.markdown("### Control de llamadas")
             @st.fragment(run_every="4s")
             def dial_controls():
@@ -339,10 +320,6 @@ if menu == "Web Pad":
                     if right.button("Pausar llamadas",icon=":material/pause:",disabled=not running,use_container_width=True):
                         campaign.set_running(db,selected,False)
                         running=False
-                stat_cols = st.columns(3)
-                stat_cols[0].metric("Teléfono", "Conectado" if online else "Sin conexión")
-                stat_cols[1].metric("Cola", str(count))
-                stat_cols[2].metric("Campaña", "Inicio solicitado" if running else "En pausa")
                 if running:
                     status=db_status
                     if status and status["seen"] and int(time.time())-status["seen"]<20 and status["phase"] in ("Listo para marcar","Marcando campaña","En llamada"):
@@ -394,32 +371,24 @@ if menu == "Web Pad":
                     select_account(st.session_state.get("operator"))
                     campaign_ui.results()
                 show_results()
-
+        st.divider()
+        st.markdown("**Marcación individual**")
+        with st.form("pad_send"):
+            number=st.text_input("Número para el marcador")
+            send=st.form_submit_button("Pasar al teléfono",disabled=not device_id)
+        if send:
+            number=re.sub(r"[ ()-]","",number)
+            if not re.fullmatch(r"[+]?[0-9]{2,20}",number): st.error("Revisa el número.")
+            else:
+                with connect() as db:
+                    changed=db.execute("UPDATE pad SET number=? WHERE key=? AND expires>?",(number,device_id,int(time.time()))).rowcount
+                if changed: st.success("Número disponible en el teléfono. Confirma la llamada desde REDIAL.")
+                else: st.error("Teléfono desconectado.")
 if menu == "Resumen":
-    st.markdown("""
-    <style>
-    .redial-features {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0 22px}
-    .redial-feature {background:linear-gradient(140deg,#27292e,#151619);border:1px solid #484a50;border-radius:16px;padding:16px;min-height:124px;box-sizing:border-box;color:#f6f5f2}
-    .redial-feature .feature-icon {font-size:22px;line-height:1.4}
-    .redial-feature strong {display:block;font-size:15px;line-height:1.3;margin:7px 0 5px;color:#fff}
-    .redial-feature small {display:block;font-size:12px;line-height:1.4;color:#d3d4d7}
-    .redial-feature .feature-tag {display:inline-block;border:1px solid #777b83;border-radius:999px;padding:2px 7px;margin-top:7px;color:#e8e8ea;font-size:10px}
-    @media(max-width:900px){.redial-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
-    @media(max-width:450px){.redial-features{grid-template-columns:1fr}}
-    </style>
-    <div class="redial-features" aria-label="Funciones de REDIAL">
-      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">📱</span><strong>Teléfono vinculado</strong><small>Envía números y campañas a tu Android.</small></div>
-      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">👤</span><strong>Mensajes personalizados</strong><small>Incluye el nombre de cada contacto.</small></div>
-      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">📊</span><strong>Gestión de resultados</strong><small>Consulta el estado de tus gestiones.</small></div>
-      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">✨</span><strong>IA · Reconocimiento de buzón</strong><small>Función prevista para futuras versiones.</small><span class="feature-tag">Función planeada</span></div>
-    </div>
-    """,unsafe_allow_html=True)
     m = metrics()
     cols = st.columns(6)
-    for col, label, key in zip(cols, ["Contactos", "Formato válido", "Móviles · ejemplo", "Fijos · ejemplo", "Tipo desconocido", "Opt-in SMS"], ["total", "valid", "mobile", "fixed", "unknown", "sms_optin"]):
-        value = {"mobile": 42, "fixed": 23}.get(key, m.get(key, 0))
-        col.metric(label, value)
-    st.caption("Los valores de móviles y fijos son ejemplos visuales y no modifican ni verifican los contactos. Tipo desconocido muestra el dato real.")
+    for col, label, key in zip(cols, ["Contactos", "Formato válido", "Móviles confirmados", "Fijos confirmados", "Tipo desconocido", "Opt-in SMS"], ["total", "valid", "mobile", "fixed", "unknown", "sms_optin"]):
+        col.metric(label, m.get(key, 0))
     st.metric("Opt-in WhatsApp", m.get("whatsapp_optin", 0))
 
 if menu == "Importar":
