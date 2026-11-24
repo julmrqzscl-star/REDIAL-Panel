@@ -26,7 +26,7 @@ jobs:
           with wave.open(raw, "wb") as w:
               _piper_voice("es-MX", "Ald").synthesize_wav(text,w,syn_config=SynthesisConfig(length_scale=1.0))
           normal=generate_piper_preview(text,"es-MX",1.0,"Ald",3.0)
-          data=generate_piper_preview(text,"es-MX",1.0,"Ald",10.0)
+          data=generate_piper_preview(text,"es-MX",1.0,"Ald",6.0)
           def levels(data):
               with wave.open(io.BytesIO(data),"rb") as w:
                   values=array.array("h",w.readframes(w.getnframes()))
