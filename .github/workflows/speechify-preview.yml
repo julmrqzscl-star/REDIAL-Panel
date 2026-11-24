@@ -1,0 +1,19 @@
+name: Speechify preview checks
+on:
+  push:
+    branches: [feature/speechify-preview]
+  pull_request:
+    paths:
+      - campaign_ui.py
+      - speechify_client.py
+      - test_speechify_client.py
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m py_compile campaign_ui.py speechify_client.py
+      - run: python -m unittest -v test_speechify_client
