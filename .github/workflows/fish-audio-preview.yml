@@ -1,0 +1,39 @@
+name: Fish Audio preview checks
+on:
+  push:
+    branches: [feature/fish-audio-free]
+  pull_request:
+    paths: [campaign_ui.py, fish_client.py]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m py_compile campaign_ui.py fish_client.py
+      - name: Test free model request and validation
+        run: |
+          python - <<'PY'
+          import io, json
+          from unittest.mock import patch
+          import fish_client
+          class Response:
+              headers = {"Content-Type": "audio/mpeg"}
+              def __enter__(self): return self
+              def __exit__(self, *args): pass
+              def read(self, n): return b"ID3" + b"X"*2000
+          with patch("urllib.request.urlopen", return_value=Response()) as request:
+              audio = fish_client.synthesize("key", "Hola María")
+              req = request.call_args.args[0]
+              assert req.get_header("Model") == "s2.1-pro-free"
+              assert json.loads(req.data)["text"] == "Hola María"
+              assert audio.startswith(b"ID3")
+          try:
+              fish_client.synthesize("key", "Hola", "invalid")
+          except ValueError:
+              pass
+          else:
+              raise AssertionError("Invalid voice ID accepted")
+          PY
