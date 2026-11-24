@@ -396,6 +396,24 @@ if menu == "Web Pad":
                 show_results()
 
 if menu == "Resumen":
+    st.markdown("""
+    <style>
+    .redial-features {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0 22px}
+    .redial-feature {background:linear-gradient(140deg,#27292e,#151619);border:1px solid #484a50;border-radius:16px;padding:16px;min-height:124px;box-sizing:border-box;color:#f6f5f2}
+    .redial-feature .feature-icon {font-size:22px;line-height:1.4}
+    .redial-feature strong {display:block;font-size:15px;line-height:1.3;margin:7px 0 5px;color:#fff}
+    .redial-feature small {display:block;font-size:12px;line-height:1.4;color:#d3d4d7}
+    .redial-feature .feature-tag {display:inline-block;border:1px solid #777b83;border-radius:999px;padding:2px 7px;margin-top:7px;color:#e8e8ea;font-size:10px}
+    @media(max-width:900px){.redial-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:450px){.redial-features{grid-template-columns:1fr}}
+    </style>
+    <div class="redial-features" aria-label="Funciones de REDIAL">
+      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">📱</span><strong>Teléfono vinculado</strong><small>Envía números y campañas a tu Android.</small></div>
+      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">👤</span><strong>Mensajes personalizados</strong><small>Incluye el nombre de cada contacto.</small></div>
+      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">📊</span><strong>Gestión de resultados</strong><small>Consulta el estado de tus gestiones.</small></div>
+      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">✨</span><strong>IA · Reconocimiento de buzón</strong><small>Función prevista para futuras versiones.</small><span class="feature-tag">En desarrollo</span></div>
+    </div>
+    """,unsafe_allow_html=True)
     m = metrics()
     cols = st.columns(6)
     for col, label, key in zip(cols, ["Contactos", "Formato válido", "Móviles · ejemplo", "Fijos · ejemplo", "Tipo desconocido", "Opt-in SMS"], ["total", "valid", "mobile", "fixed", "unknown", "sms_optin"]):
