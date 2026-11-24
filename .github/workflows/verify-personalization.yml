@@ -1,0 +1,41 @@
+name: Verify personalized calls
+on:
+  push:
+    branches: ["feature/llamadas-personalizadas"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m py_compile campaign.py campaign_ui.py
+      - name: Test per-contact message and missing names
+        run: |
+          python - <<'PY'
+          import json, sqlite3
+          import campaign
+          db=sqlite3.connect(":memory:")
+          db.row_factory=sqlite3.Row
+          campaign.setup(db)
+          settings={"start":"00:00","end":"00:00","retries":0,"interval":60,
+                    "voice":{"text":"Hola {nombre}, buen día.","lang":"es-MX","rate":1,"pitch":1,"auto":True}}
+          entries={"+521111111111":{"nombre":"María"}, "+522222222222":{"nombre":"José"}, "+523333333333":{"nombre":""}}
+          campaign.enqueue(db,"device","Prueba",settings,entries,100)
+          campaign.set_running(db,"device",True)
+          states=[r["state"] for r in db.execute("select state from jobs order by id")]
+          assert states==["Pendiente","Pendiente","Revisar nombre"], states
+          first=campaign.dispatch(db,"device",100)
+          data=json.loads(first["payload"])
+          assert data["voice"]["text"]=="Hola María, buen día.",data
+          same=campaign.dispatch(db,"device",100)
+          assert same["batch_id"]==first["batch_id"]
+          campaign.record_result(db,"device",first["batch_id"],"Conectada",101)
+          second=campaign.dispatch(db,"device",102)
+          assert json.loads(second["payload"])["voice"]["text"]=="Hola José, buen día."
+          campaign.record_result(db,"device",second["batch_id"],"Conectada",103)
+          assert campaign.dispatch(db,"device",104) is None
+          assert db.execute("select state from jobs where phone='+523333333333'").fetchone()[0]=="Revisar nombre"
+          print("Per-contact names, review state and delivery tokens verified")
+          PY
