@@ -4,3 +4,4 @@ uvicorn[standard]>=0.30,<1
 
 tzdata>=2024.1
 piper-tts>=1.5,<2
+kokoro-onnx>=0.4,<1
