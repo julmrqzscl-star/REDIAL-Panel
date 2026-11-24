@@ -411,7 +411,7 @@ if menu == "Resumen":
       <div class="redial-feature"><span class="feature-icon" aria-hidden="true">📱</span><strong>Teléfono vinculado</strong><small>Envía números y campañas a tu Android.</small></div>
       <div class="redial-feature"><span class="feature-icon" aria-hidden="true">👤</span><strong>Mensajes personalizados</strong><small>Incluye el nombre de cada contacto.</small></div>
       <div class="redial-feature"><span class="feature-icon" aria-hidden="true">📊</span><strong>Gestión de resultados</strong><small>Consulta el estado de tus gestiones.</small></div>
-      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">✨</span><strong>IA · Reconocimiento de buzón</strong><small>Función prevista para futuras versiones.</small><span class="feature-tag">En desarrollo</span></div>
+      <div class="redial-feature"><span class="feature-icon" aria-hidden="true">✨</span><strong>IA · Reconocimiento de buzón</strong><small>Función prevista para futuras versiones.</small><span class="feature-tag">Función planeada</span></div>
     </div>
     """,unsafe_allow_html=True)
     m = metrics()
