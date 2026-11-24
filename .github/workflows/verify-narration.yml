@@ -1,0 +1,36 @@
+name: Verify local narration voices
+on:
+  push:
+    branches: ["feature/voces-narracion-kokoro"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update && sudo apt-get install -y espeak-ng
+      - run: pip install -r requirements.txt faster-whisper
+      - run: python -m py_compile campaign_ui.py narrator.py campaign.py
+      - name: Synthesize Spanish narration
+        run: |
+          python - <<'PY'
+          import io, wave, array
+          from pathlib import Path
+          from narrator import generate, VOICES
+          from faster_whisper import WhisperModel
+          for name in VOICES:
+              data=generate("Hola, esta es una prueba de voz de REDIAL.",name,1.0)
+              with wave.open(io.BytesIO(data),"rb") as wav:
+                  samples=array.array("h",wav.readframes(wav.getnframes()))
+                  assert wav.getnframes()>wav.getframerate()//2 and max(map(abs,samples))>1000
+              Path(name+".wav").write_bytes(data)
+              print("Generated",name)
+          model=WhisperModel("tiny",device="cpu",compute_type="int8")
+          segments,_=model.transcribe("Dora.wav",language="es",beam_size=5)
+          text=" ".join(x.text for x in segments).lower()
+          print("Transcript:",text)
+          assert "prueba" in text and ("voz" in text or "vos" in text)
+          PY
