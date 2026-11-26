@@ -29,6 +29,20 @@ EDGE_VOICES = {
     "en-US": {"Jenny · EE. UU.": "en-US-JennyNeural", "Guy · EE. UU.": "en-US-GuyNeural"},
 }
 
+# Estas voces se ofrecen en el selector de cualquier idioma español.
+LATAM_EDGE_VOICES = {
+    "Karla · Honduras": "es-HN-KarlaNeural",
+    "Carlos · Honduras": "es-HN-CarlosNeural",
+    "Andrea · Ecuador": "es-EC-AndreaNeural",
+    "Luis · Ecuador": "es-EC-LuisNeural",
+    "Catalina · Chile": "es-CL-CatalinaNeural",
+    "Lorenzo · Chile": "es-CL-LorenzoNeural",
+    "Marta · Guatemala": "es-GT-MartaNeural",
+    "Andrés · Guatemala": "es-GT-AndresNeural",
+}
+for _locale in ("es-MX", "es-AR", "es-ES"):
+    EDGE_VOICES[_locale].update(LATAM_EDGE_VOICES)
+
 def generate_edge_preview(text, lang, voice_name, rate, pitch):
     """Retrieve a downloadable MP3 from the optional Edge online service."""
     import asyncio
@@ -205,6 +219,10 @@ def settings_and_list():
         st.caption("El estilo ajusta el ritmo y la variación de la voz en esta vista previa; el resultado depende del modelo elegido.")
         rate=st.slider("Velocidad",0.5,2.0,1.0)
         pitch=st.slider("Tono",0.5,2.0,1.0)
+        expression = "Natural"
+        if engine=="Microsoft natural (MP3)":
+            expression=st.selectbox("Expresión de la voz",["Natural", "Seria", "Molesta"])
+            st.caption("Seria y Molesta ajustan velocidad y tono para aproximar la expresión; el motor no garantiza una emoción real.")
         strength=st.select_slider("Intensidad de voz Piper", options=[3.0, 4.5, 6.0], value=4.5, format_func=lambda x: {3.0:"Normal", 4.5:"Alta", 6.0:"Muy alta"}[x])
         st.caption("La intensidad se aplica solo a Piper. La velocidad y el tono ajustan Microsoft natural; el estilo se aplica solo a Piper.")
         auto=st.checkbox("Reproducir localmente al conectar")
@@ -253,12 +271,16 @@ def settings_and_list():
         </script>
         """.replace("SETTINGS",browser_settings),height=135)
 
-        signature=(preview_body,lang,rate,pitch,voice_name,strength,style,engine)
+        signature=(preview_body,lang,rate,pitch,voice_name,strength,style,engine,expression)
         if st.button("Generar vista previa",disabled=not body.strip() or (engine=="Narración" and not lang.startswith("es")) or (engine=="Speechify" and (not speechify_key or not voice_name)),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
                     if engine=="Microsoft natural (MP3)":
-                        audio = generate_edge_preview(preview_body,lang,voice_name,rate,pitch)
+                        adjustments={"Natural": (1.0, 1.0), "Seria": (0.90, 0.88), "Molesta": (1.08, 0.92)}
+                        rate_factor,pitch_factor=adjustments[expression]
+                        effective_rate=max(0.5,min(2.0,rate*rate_factor))
+                        effective_pitch=max(0.5,min(2.0,pitch*pitch_factor))
+                        audio = generate_edge_preview(preview_body,lang,voice_name,effective_rate,effective_pitch)
                     elif engine=="Narración":
                         import narrator
                         audio = narrator.generate(preview_body,voice_name,rate)
@@ -359,5 +381,6 @@ def collections_desk():
                   (query in r["teléfono"] or query in r["campaña"].casefold())]
         if selected: st.dataframe(selected,hide_index=True,use_container_width=True)
         else: st.caption("Sin gestiones que coincidan con la búsqueda.")
+
 
 
