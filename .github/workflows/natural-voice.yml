@@ -1,0 +1,28 @@
+name: Verify natural voice preview
+on:
+  push:
+    branches: [feature/voces-naturales]
+  pull_request:
+    paths: [campaign_ui.py]
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "streamlit>=1.52,<2" "piper-tts>=1.5,<2" tzdata
+      - name: Generate and inspect spoken audio
+        run: |
+          python - <<'PY'
+          import io, wave, array
+          from campaign_ui import generate_piper_preview
+          data = generate_piper_preview("Hola María, te llamamos para compartirte información.", "es-AR", 1.0, "Daniela", 4.5, "Conversación pausada")
+          with wave.open(io.BytesIO(data), "rb") as w:
+              assert w.getnframes() > w.getframerate() // 2
+              samples = array.array("h", w.readframes(w.getnframes()))
+          peak = max(abs(int(x)) for x in samples)
+          assert 500 < peak <= 32700
+          print("Valid non-silent WAV, peak:", peak)
+          PY
