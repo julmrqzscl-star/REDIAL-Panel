@@ -10,12 +10,14 @@ from campaign import setup,classify
 
 PIPER_VOICES = {
     "es-MX": {"Ald": "es_MX-ald-medium", "Claude": "es_MX-claude-high"},
+    "es-AR": {"Daniela": "es_AR-daniela-high"},
     "es-ES": {"Dave": "es_ES-davefx-medium", "Carl": "es_ES-carlfm-x_low", "Sharvard": "es_ES-sharvard-medium", "MLS 10246": "es_ES-mls_10246-low"},
     "en-US": {"Lessac": "en_US-lessac-medium", "Amy": "en_US-amy-medium"},
 }
 
 PIPER_STYLES = {
     "Natural": {"noise_scale": 0.667, "noise_w_scale": 0.8, "pace": 1.0},
+    "Conversación pausada": {"noise_scale": 0.70, "noise_w_scale": 0.85, "pace": 0.92},
     "Conversación": {"noise_scale": 0.75, "noise_w_scale": 0.9, "pace": 1.03},
     "Formal": {"noise_scale": 0.55, "noise_w_scale": 0.7, "pace": 0.96},
 }
@@ -56,10 +58,15 @@ def generate_piper_preview(text, lang, rate, voice_name=None, strength=4.5, styl
         raise ValueError("El motor generó una señal demasiado baja.")
     # Boost quieter speech while limiting peaks to avoid hard digital clipping.
     strength = max(3.0, min(6.0, float(strength)))
-    scale = strength / 32768.0
-    normalizer = math.tanh(strength)
+    # Preserve the waveform at moderate levels; compress peaks only when needed.
+    gain = (3.0 + strength) / 2.0
+    knee = 26000.0
     for index, sample in enumerate(samples):
-        samples[index] = round(30000 * math.tanh(sample * scale) / normalizer)
+        amplified = float(sample) * gain
+        magnitude = abs(amplified)
+        if magnitude > knee:
+            magnitude = knee + (32700.0 - knee) * math.tanh((magnitude - knee) / (32700.0 - knee))
+        samples[index] = round(math.copysign(magnitude, amplified))
     if sys.byteorder != "little":
         samples.byteswap()
     result = io.BytesIO()
@@ -121,7 +128,7 @@ def settings_and_list():
         preview_body=body.replace("{nombre}",sample_name)
         if "{nombre}" in body:
             st.caption("Ejemplo de vista previa: " + preview_body)
-        lang=st.selectbox("Idioma",["es-MX","es-ES","en-US"])
+        lang=st.selectbox("Idioma",["es-MX","es-AR","es-ES","en-US"])
         engine=st.radio("Motor de vista previa",["Piper","Narración","Speechify"],horizontal=True,help="Speechify genera audio en línea; Piper y Narración se ejecutan en el servidor.")
         if engine=="Narración" and not lang.startswith("es"):
             st.info("Las voces de narración están disponibles para español.")
@@ -160,7 +167,7 @@ def settings_and_list():
         st.caption("La primera generación de una voz puede tardar unos minutos mientras se descarga su modelo.")
         if engine=="Narración": st.caption("Narración ofrece voces adicionales en español; el estilo y la intensidad Piper no se aplican a este motor.")
         if engine=="Speechify": st.caption("Los controles de velocidad, tono, estilo e intensidad no afectan la vista previa de Speechify. El audio de Speechify no se transmite automáticamente durante las llamadas.")
-        st.caption("La voz elegida y la velocidad se aplican a esta vista previa. El teléfono usa sus propias voces; el tono corresponde a Android.")
+        st.caption("La voz elegida se aplica a esta vista previa. En las llamadas el teléfono usa sus propias voces; el tono corresponde a Android.")
         st.caption("También puedes escuchar las voces instaladas en tu navegador; esas voces se reproducen en este dispositivo.")
         browser_settings=json.dumps(dict(text=preview_body,lang=lang,rate=rate,pitch=pitch),ensure_ascii=True).replace("<", "\\u003c")
         components.html("""
