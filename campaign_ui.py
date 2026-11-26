@@ -22,6 +22,49 @@ PIPER_STYLES = {
     "Formal": {"noise_scale": 0.55, "noise_w_scale": 0.7, "pace": 0.96},
 }
 
+EDGE_VOICES = {
+    "es-MX": {"Dalia · México": "es-MX-DaliaNeural", "Jorge · México": "es-MX-JorgeNeural"},
+    "es-AR": {"Elena · Argentina": "es-AR-ElenaNeural", "Tomás · Argentina": "es-AR-TomasNeural"},
+    "es-ES": {"Elvira · España": "es-ES-ElviraNeural", "Álvaro · España": "es-ES-AlvaroNeural"},
+    "en-US": {"Jenny · EE. UU.": "en-US-JennyNeural", "Guy · EE. UU.": "en-US-GuyNeural"},
+}
+
+def generate_edge_preview(text, lang, voice_name, rate, pitch):
+    """Retrieve a downloadable MP3 from the optional Edge online service."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    import edge_tts
+
+    async def collect():
+        client = edge_tts.Communicate(text, EDGE_VOICES[lang][voice_name],
+            rate=f"{round((rate - 1) * 100):+d}%", pitch=f"{round((pitch - 1) * 50):+d}Hz")
+        chunks = []
+        async for chunk in client.stream():
+            if chunk["type"] == "audio":
+                chunks.append(chunk["data"])
+        return b"".join(chunks)
+
+    # Streamlit may already have an event loop running in its script thread.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(collect())).result(timeout=90)
+
+def encode_checked_mp3(audio):
+    """Convert and reject files that cannot be decoded or contain only silence."""
+    import array, subprocess, sys
+    if not audio:
+        raise ValueError("El motor no devolvió audio.")
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0"]
+    decoded = subprocess.run(command + ["-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"], input=audio, capture_output=True, timeout=60, check=True).stdout
+    samples = array.array("h")
+    samples.frombytes(decoded[:len(decoded) // 2 * 2])
+    if sys.byteorder != "little": samples.byteswap()
+    if not samples or max(map(abs, samples)) < 32:
+        raise ValueError("El audio generado está vacío o en silencio. Intenta con otra voz.")
+    result = subprocess.run(command + ["-vn", "-ac", "1", "-codec:a", "libmp3lame", "-b:a", "128k", "-f", "mp3", "pipe:1"], input=audio, capture_output=True, timeout=60, check=True).stdout
+    if not result:
+        raise ValueError("No se pudo generar el archivo MP3.")
+    return result
+
 @st.cache_resource(show_spinner=False, max_entries=2)
 def _piper_voice(lang, voice_name):
     import subprocess, sys, tempfile
@@ -129,7 +172,9 @@ def settings_and_list():
         if "{nombre}" in body:
             st.caption("Ejemplo de vista previa: " + preview_body)
         lang=st.selectbox("Idioma",["es-MX","es-AR","es-ES","en-US"])
-        engine=st.radio("Motor de vista previa",["Piper","Narración","Speechify"],horizontal=True,help="Speechify genera audio en línea; Piper y Narración se ejecutan en el servidor.")
+        engine=st.radio("Motor de vista previa",["Microsoft natural (MP3)","Piper","Narración","Speechify"],horizontal=True,help="Microsoft y Speechify generan audio en línea; Piper y Narración se ejecutan en el servidor.")
+        if engine=="Microsoft natural (MP3)":
+            st.caption("Envía el texto, incluido el nombre de ejemplo, al servicio en línea de Microsoft mediante una integración no oficial. Su disponibilidad puede cambiar. El MP3 se puede compartir por WhatsApp.")
         if engine=="Narración" and not lang.startswith("es"):
             st.info("Las voces de narración están disponibles para español.")
         speechify_key = str(st.secrets.get("SPEECHIFY_API_KEY", "")).strip() if engine=="Speechify" else ""
@@ -154,21 +199,21 @@ def settings_and_list():
                 voice_name = ""
                 st.caption("Carga el catálogo para elegir una voz disponible en tu cuenta.")
         else:
-            options=list(PIPER_VOICES[lang]) if engine=="Piper" else ["Dora","Alex","Santa"]
-            voice_name=st.selectbox("Voz de la vista previa",options,key="preview_voice")
+            options=list(EDGE_VOICES[lang]) if engine=="Microsoft natural (MP3)" else (list(PIPER_VOICES[lang]) if engine=="Piper" else ["Dora","Alex","Santa"])
+            voice_name=st.selectbox("Voz de la vista previa",options,key="preview_voice_"+engine)
         style=st.selectbox("Estilo de voz Piper",list(PIPER_STYLES),key="piper_style")
         st.caption("El estilo ajusta el ritmo y la variación de la voz en esta vista previa; el resultado depende del modelo elegido.")
         rate=st.slider("Velocidad",0.5,2.0,1.0)
         pitch=st.slider("Tono",0.5,2.0,1.0)
         strength=st.select_slider("Intensidad de voz Piper", options=[3.0, 4.5, 6.0], value=4.5, format_func=lambda x: {3.0:"Normal", 4.5:"Alta", 6.0:"Muy alta"}[x])
-        st.caption("Una intensidad mayor eleva las partes suaves y puede modificar el timbre. Se aplica al reproductor y al WAV descargado.")
+        st.caption("La intensidad se aplica solo a Piper. La velocidad y el tono ajustan Microsoft natural; el estilo se aplica solo a Piper.")
         auto=st.checkbox("Reproducir localmente al conectar")
         voice=dict(text=body,lang=lang,rate=rate,pitch=pitch,auto=auto)
         st.caption("La primera generación de una voz puede tardar unos minutos mientras se descarga su modelo.")
         if engine=="Narración": st.caption("Narración ofrece voces adicionales en español; el estilo y la intensidad Piper no se aplican a este motor.")
         if engine=="Speechify": st.caption("Los controles de velocidad, tono, estilo e intensidad no afectan la vista previa de Speechify. El audio de Speechify no se transmite automáticamente durante las llamadas.")
         st.caption("La voz elegida se aplica a esta vista previa. En las llamadas el teléfono usa sus propias voces; el tono corresponde a Android.")
-        st.caption("Explora las voces mexicanas y otras voces disponibles en tu navegador. Su disponibilidad depende del dispositivo y de Edge.")
+        st.caption("Las voces de este navegador sirven solo para escuchar. Para descargar, elige arriba una voz del motor Microsoft natural u otro motor y pulsa Generar vista previa.")
         browser_settings=json.dumps(dict(text=preview_body,lang=lang,rate=rate,pitch=pitch),ensure_ascii=True).replace("<", "\\u003c")
         components.html("""
         <div style="font:14px sans-serif;color:#eee;background:#19191b;padding:12px;border-radius:8px">
@@ -208,11 +253,13 @@ def settings_and_list():
         </script>
         """.replace("SETTINGS",browser_settings),height=135)
 
-        signature=(preview_body,lang,rate,voice_name,strength,style,engine)
+        signature=(preview_body,lang,rate,pitch,voice_name,strength,style,engine)
         if st.button("Generar vista previa",disabled=not body.strip() or (engine=="Narración" and not lang.startswith("es")) or (engine=="Speechify" and (not speechify_key or not voice_name)),key="generate_voice"):
             try:
                 with st.spinner("Preparando voz y generando audio…"):
-                    if engine=="Narración":
+                    if engine=="Microsoft natural (MP3)":
+                        audio = generate_edge_preview(preview_body,lang,voice_name,rate,pitch)
+                    elif engine=="Narración":
                         import narrator
                         audio = narrator.generate(preview_body,voice_name,rate)
                     elif engine=="Speechify":
@@ -220,15 +267,16 @@ def settings_and_list():
                         audio = speechify_client.synthesize(speechify_key,preview_body,voice_name,lang)
                     else:
                         audio = generate_piper_preview(preview_body, lang, rate, voice_name, strength, style)
-                st.session_state.redial_voice_preview=(signature,audio)
+                    mp3 = encode_checked_mp3(audio)
+                st.session_state.redial_voice_preview=(signature,mp3)
             except Exception as exc:
                 st.session_state.pop("redial_voice_preview",None)
                 st.error("No se pudo generar la voz. Comprueba la conexión del servidor e inténtalo otra vez.")
                 st.exception(exc)
         preview=st.session_state.get("redial_voice_preview")
         if preview and preview[0]==signature:
-            st.audio(preview[1],format="audio/wav")
-            st.download_button("Descargar voz WAV",preview[1],file_name="REDIAL_voz.wav",mime="audio/wav",key="download_voice")
+            st.audio(preview[1],format="audio/mpeg")
+            st.download_button("Descargar MP3 para WhatsApp",preview[1],file_name="REDIAL_voz.mp3",mime="audio/mpeg",key="download_voice")
 
     return entries,name,dict(retries=int(retries),interval=int(interval)*60,start=start.strftime("%H:%M"),end=end.strftime("%H:%M"),voice=voice)
 
@@ -311,4 +359,5 @@ def collections_desk():
                   (query in r["teléfono"] or query in r["campaña"].casefold())]
         if selected: st.dataframe(selected,hide_index=True,use_container_width=True)
         else: st.caption("Sin gestiones que coincidan con la búsqueda.")
+
 
